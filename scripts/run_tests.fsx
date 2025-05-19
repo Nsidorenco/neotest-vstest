@@ -150,7 +150,13 @@ module TestDiscovery =
                 (_testRunCompleteArgs, _lastChunkArgs, _runContextAttachments, _executorUris)
                 =
                 use outputWriter = new StreamWriter(outputFilePath, append = false)
-                outputWriter.WriteLine(JsonConvert.SerializeObject(resultsDictionary))
+
+                let output =
+                    resultsDictionary
+                    |> Seq.map (fun kv -> {| id = kv.Key; result = kv.Value |} |> JsonConvert.SerializeObject)
+                    |> String.concat Environment.NewLine
+
+                outputWriter.Write(output)
 
             member __.HandleLogMessage(_level, message) =
                 if not <| String.IsNullOrWhiteSpace message then

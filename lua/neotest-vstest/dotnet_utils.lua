@@ -102,6 +102,7 @@ end
 ---@field dll_file string
 ---@field proj_dir string
 ---@field is_test_project boolean
+---@field is_mtp_project boolean is project compiler use Microsoft.Testting.Platform
 
 ---@type table<string, DotnetProjectInfo>
 local proj_info_cache = {}
@@ -178,6 +179,7 @@ function M.get_proj_info(path)
     "-getProperty:TargetPath",
     "-getProperty:MSBuildProjectDirectory",
     "-getProperty:IsTestProject",
+    "-getProperty:IsTestingPlatformApplication",
     "-property:TargetFramework=" .. target_framework,
   }
 
@@ -197,6 +199,7 @@ function M.get_proj_info(path)
     dll_file = properties.TargetPath,
     proj_dir = properties.MSBuildProjectDirectory,
     is_test_project = properties.IsTestProject == "true",
+    is_mtp_project = properties.IsTestingPlatformApplication == "true",
   }
 
   if proj_data.dll_file == "" then
@@ -212,7 +215,12 @@ function M.get_proj_info(path)
   end
 
   semaphore.release()
-  return proj_data
+  return (
+    proj_data.dll_file ~= ""
+    and proj_data.proj_file ~= ""
+    and (proj_data.is_test_project or proj_data.is_mtp_project)
+    and proj_data
+  ) or nil
 end
 
 local solution_discovery_semaphore = nio.control.semaphore(1)
