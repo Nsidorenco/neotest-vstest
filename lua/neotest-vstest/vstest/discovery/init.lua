@@ -1,5 +1,4 @@
 local nio = require("nio")
-local lib = require("neotest.lib")
 local logger = require("neotest.logging")
 local files = require("neotest-vstest.files")
 local dotnet_utils = require("neotest-vstest.dotnet_utils")
@@ -11,26 +10,20 @@ local M = {}
 local project_semaphore = nio.control.semaphore(1)
 local project_semaphores = {}
 
----@param projects DotnetProjectInfo[]
+---@param project DotnetProjectInfo
 ---@return table?
-local function discover_tests_in_projects(projects)
+local function discover_tests_in_project(project)
   local tests_in_files
 
   local wait_file = nio.fn.tempname()
   local output_file = nio.fn.tempname()
-
-  local dlls = {}
-
-  for _, project in ipairs(projects) do
-    dlls[#dlls + 1] = project.dll_file
-  end
 
   local command = vim
     .iter({
       "discover",
       output_file,
       wait_file,
-      dlls,
+      { project.dll_file },
     })
     :flatten()
     :join(" ")
@@ -38,7 +31,7 @@ local function discover_tests_in_projects(projects)
   logger.debug("neotest-vstest: Discovering tests using:")
   logger.debug(command)
 
-  cli_wrapper.invoke_test_runner(command)
+  cli_wrapper.invoke_test_runner(project, command)
 
   logger.debug("neotest-vstest: Waiting for result file to populated...")
 
@@ -55,11 +48,11 @@ local function discover_tests_in_projects(projects)
     -- In this case the DisplayName contains a lot of redundant information in the neotest tree.
     -- Thus we want to detect this for the test cases and if a match is found
     -- we can shorten the display name to the section after the last period
-    short_test_names = {}
+    local short_test_names = {}
     for path, test_cases in pairs(tests_in_files) do
       short_test_names[path] = {}
       for id, test in pairs(test_cases) do
-        short_name = test.DisplayName
+        local short_name = test.DisplayName
         if vim.startswith(test.DisplayName, test.FullyQualifiedName) then
           short_name = string.gsub(test.DisplayName, "[^(]+%.", "", 1)
         end
@@ -73,6 +66,16 @@ local function discover_tests_in_projects(projects)
   end
 
   return tests_in_files
+end
+
+---@param projects DotnetProjectInfo[]
+---@return table?
+local function discover_tests_in_projects(projects)
+  local tests = {}
+  for _, project in ipairs(projects) do
+    local tests_in_project = discover_tests_in_project(project)
+    vim.tbl_extend("force", tests, tests_in_project)
+  end
 end
 
 ---@param project DotnetProjectInfo
@@ -139,7 +142,7 @@ function M.discover_project_tests(project, path)
     return cache_entry.TestCases
   end
 
-  local json = discover_tests_in_projects({ project })
+  local json = discover_tests_in_project(project)
 
   if json then
     discovery_cache.populate_discovery_cache(

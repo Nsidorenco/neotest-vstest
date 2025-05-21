@@ -3,12 +3,6 @@ local logger = require("neotest.logging")
 
 local M = {}
 
----@class TestCase
----@field CodeFilePath string
----@field DisplayName string
----@field FullyQualifiedName string
----@field LineNumber integer
-
 ---@class CacheEntry
 ---@field TestCases table<string, TestCase[]> map from file path to test cases
 ---@field LastModified integer unix timestamp of the project dll file was last modified
