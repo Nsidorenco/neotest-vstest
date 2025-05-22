@@ -5,6 +5,64 @@ local cli_wrapper = require("neotest-vstest.vstest.cli_wrapper")
 
 local M = {}
 
+---@param project DotnetProjectInfo
+---@return table?
+function M.discover_tests_in_project(project)
+  local tests_in_files
+
+  local wait_file = nio.fn.tempname()
+  local output_file = nio.fn.tempname()
+
+  local command = vim
+    .iter({
+      "discover",
+      output_file,
+      wait_file,
+      { project.dll_file },
+    })
+    :flatten()
+    :join(" ")
+
+  logger.debug("neotest-vstest: Discovering tests using:")
+  logger.debug(command)
+
+  cli_wrapper.invoke_test_runner(project, command)
+
+  logger.debug("neotest-vstest: Waiting for result file to populated...")
+
+  local max_wait = 60 * 1000 -- 60 sec
+
+  if cli_wrapper.spin_lock_wait_file(wait_file, max_wait) then
+    local content = cli_wrapper.spin_lock_wait_file(output_file, max_wait)
+
+    logger.debug("neotest-vstest: file has been populated. Extracting test cases...")
+
+    tests_in_files = (content and vim.json.decode(content, { luanil = { object = true } })) or {}
+
+    -- DisplayName may be almost equal to FullyQualifiedName of a test
+    -- In this case the DisplayName contains a lot of redundant information in the neotest tree.
+    -- Thus we want to detect this for the test cases and if a match is found
+    -- we can shorten the display name to the section after the last period
+    local short_test_names = {}
+    for path, test_cases in pairs(tests_in_files) do
+      short_test_names[path] = {}
+      for id, test in pairs(test_cases) do
+        local short_name = test.DisplayName
+        if vim.startswith(test.DisplayName, test.FullyQualifiedName) then
+          short_name = string.gsub(test.DisplayName, "[^(]+%.", "", 1)
+        end
+        short_test_names[path][id] = vim.tbl_extend("force", test, { DisplayName = short_name })
+      end
+    end
+    tests_in_files = short_test_names
+
+    logger.trace("neotest-vstest: done decoding test cases:")
+    logger.trace(tests_in_files)
+  end
+
+  return tests_in_files
+end
+
 ---runs tests identified by ids.
 ---@param project DotnetProjectInfo
 ---@param ids string|string[]

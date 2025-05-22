@@ -3,6 +3,7 @@ local lib = require("neotest.lib")
 local types = require("neotest.types")
 local logger = require("neotest.logging")
 
+local utilities = require("neotest-vstest.utilities")
 local vstest = require("neotest-vstest.vstest")
 local test_discovery = require("neotest-vstest.vstest.discovery")
 local cli_wrapper = require("neotest-vstest.vstest.cli_wrapper")
@@ -47,7 +48,10 @@ function DotnetNeotestAdapter.is_test_file(file_path)
     return false
   end
 
-  local tests = test_discovery.discover_tests(file_path)
+  local project = dotnet_utils.get_proj_info(file_path)
+  local client = test_discovery.get_client_for_project(project)
+
+  local tests = (client and client:discover_tests_for_path(file_path)) or {}
   local n = 0
   if tests then
     n = #vim.tbl_values(tests)
@@ -240,6 +244,11 @@ function DotnetNeotestAdapter.discover_positions(path)
   logger.info(string.format("neotest-vstest: scanning %s for tests...", path))
 
   local project = dotnet_utils.get_proj_info(path)
+  local client = test_discovery.get_client_for_project(project)
+
+  if not client then
+    return
+  end
 
   if project and (vim.endswith(path, ".csproj") or vim.endswith(path, ".fsproj")) then
     return get_top_level_tests(project)
@@ -247,7 +256,7 @@ function DotnetNeotestAdapter.discover_positions(path)
 
   local filetype = (vim.endswith(path, ".fs") and "fsharp") or "c_sharp"
 
-  local tests_in_file = test_discovery.discover_tests(path)
+  local tests_in_file = client:discover_tests_for_path(path)
 
   if not tests_in_file or next(tests_in_file) == nil then
     return
@@ -306,7 +315,7 @@ function DotnetNeotestAdapter.discover_positions(path)
     end
 
     for _, node in ipairs(nodes) do
-      node.project = project
+      node.client = client
     end
 
     local structure = assert(build_structure(nodes, {}, {
@@ -349,7 +358,7 @@ function DotnetNeotestAdapter.build_spec(args)
   for _, position in tree:iter() do
     if position.type == "test" then
       logger.debug(position)
-      local proj_info = position.project
+      local proj_info = position.client.project
       if proj_info then
         local tests = projects[proj_info] or {}
         projects[proj_info] = vim.list_extend(tests, { position.id })
@@ -361,7 +370,7 @@ function DotnetNeotestAdapter.build_spec(args)
   if args.strategy == "dap" then
     local attached_path = nio.fn.tempname()
 
-    local project = pos.project
+    local project = pos.client.project
 
     if solution then
       dotnet_utils.build_path(solution)
@@ -388,21 +397,18 @@ function DotnetNeotestAdapter.build_spec(args)
 
   local stream_path = nio.fn.tempname()
   lib.files.write(stream_path, "")
-  local stream_data, stop_stream = lib.files.stream_lines(stream_path)
-
-  local results_path = nio.fn.tempname()
+  local stream = utilities.stream_queue()
 
   return {
     context = {
       projects_id_map = projects,
       solution = solution,
-      results_path = results_path,
-      results_stream_path = stream_path,
-      stop_stream = stop_stream,
+      results = {},
+      write_stream = stream.write,
     },
     stream = function()
       return function()
-        local new_results = stream_data()
+        local new_results = stream.get()
         local ok, parsed = pcall(vim.json.decode, new_results, { luanil = { object = true } })
 
         if not ok or not parsed then
@@ -420,15 +426,10 @@ function DotnetNeotestAdapter.results(spec, result, _tree)
   logger.info("neotest-vstest: waiting for test results")
   logger.debug(spec)
   logger.debug(result)
-  spec.context.stop_stream()
-  local success, lines = pcall(lib.files.read_lines, spec.context.results_path)
-
-  logger.info("neotest-vstest: parsing test results")
-
   ---@type table<string, neotest.Result>
-  local results = {}
+  local results = spec.context.results or {}
 
-  if not success then
+  if not results then
     for _, id in ipairs(vim.tbl_values(spec.context.projects_id_map)) do
       results[id] = {
         status = types.ResultStatus.failed,
@@ -440,30 +441,6 @@ function DotnetNeotestAdapter.results(spec, result, _tree)
       }
     end
     return results
-  end
-
-  for _, line in ipairs(lines) do
-    local parse_ok, parsed = pcall(vim.json.decode, line)
-
-    if not parse_ok or not parsed then
-      for _, ids in ipairs(spec.context.projects_id_map) do
-        for _, id in ipairs(ids) do
-          results[id] = {
-            status = types.ResultStatus.failed,
-            output = spec.context.result_path,
-            errors = {
-              { message = result.output },
-              { message = "failed to parse result file" },
-            },
-          }
-        end
-      end
-    else
-      results[parsed.id] = parsed.result
-    end
-
-    logger.debug("neotest-vstest: parsed result:")
-    logger.debug(parsed)
   end
 
   logger.debug(results)

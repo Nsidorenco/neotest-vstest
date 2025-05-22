@@ -1,10 +1,8 @@
 local nio = require("nio")
-local lib = require("neotest.lib")
 local logger = require("neotest.logging")
 local FanoutAccum = require("neotest.types.fanout_accum")
-local vstest = require("neotest-vstest.vstest")
 local dotnet_utils = require("neotest-vstest.dotnet_utils")
-local cli_wrapper = require("neotest-vstest.vstest.cli_wrapper")
+local discovery = require("neotest-vstest.vstest.discovery")
 
 ---@async
 ---@param spec neotest.RunSpec
@@ -17,6 +15,8 @@ return function(spec)
       dotnet_utils.build_project(project)
     end
   end
+
+  local output_finish_future = nio.control.future()
 
   local output_accum = FanoutAccum(function(prev, new)
     if not prev then
@@ -36,70 +36,54 @@ return function(spec)
   local output_open_err, output_fd = nio.uv.fs_open(output_path, "w", 438)
   assert(not output_open_err, output_open_err)
 
-  local result_stream_open_err, result_stream_fd =
-    nio.uv.fs_open(spec.context.results_stream_path, "w", 438)
-  assert(not result_stream_open_err, result_stream_open_err)
-
   output_accum:subscribe(function(data)
     local write_err = nio.uv.fs_write(output_fd, data, nil)
     assert(not write_err, write_err)
   end)
 
   result_accum:subscribe(function(data)
-    local write_err = nio.uv.fs_write(result_stream_fd, data, nil)
-    assert(not write_err, write_err)
+    spec.context.write_stream(data)
   end)
 
   ---@type function[]
-  local test_run_results = {}
+  local test_run_result_functions = {}
+  local stop_stream_functions = {}
 
   for project, ids in pairs(spec.context.projects_id_map) do
-    local process_output_file, stream_file, result_file = vstest.run_tests(project, ids)
+    local client = discovery.get_client_for_project(project)
+    assert(client, "failed to get client for project")
 
-    local result_stream_data, result_stop_stream = lib.files.stream_lines(stream_file)
-    local output_stream_data, output_stop_stream = lib.files.stream_lines(process_output_file)
-
-    local stop_stream = function()
-      output_stop_stream()
-      result_stop_stream()
-      local output_close_err = nio.uv.fs_close(output_fd)
-      assert(not output_close_err, output_close_err)
-      local result_close_error = nio.uv.fs_close(result_stream_fd)
-      assert(not result_close_error, result_close_error)
-    end
+    local run_result = client:run_tests(ids)
 
     nio.run(function()
-      local stream = result_stream_data()
-      for _, line in ipairs(stream) do
-        result_accum:push(line .. "\n")
+      while not output_finish_future.is_set() do
+        local data = run_result.output_stream()
+        for _, line in ipairs(data) do
+          result_accum:push(line .. "\n")
+        end
       end
     end)
 
     nio.run(function()
-      local stream = output_stream_data()
-      for _, line in ipairs(stream) do
-        logger.debug("neotest-vstest: writing output: " .. line)
-        output_accum:push(line .. "\n")
+      while not output_finish_future.is_set() do
+        local data = run_result.result_stream()
+        for _, line in ipairs(data) do
+          logger.debug("neotest-vstest: writing result: ")
+          logger.debug(line)
+          output_accum:push(line)
+        end
       end
     end)
 
-    table.insert(test_run_results, function()
-      cli_wrapper.spin_lock_wait_file(result_file, 5 * 30 * 1000)
-      return { stop_stream = stop_stream, result_file = result_file }
-    end)
+    table.insert(test_run_result_functions, run_result.result_future.wait)
+    table.insert(stop_stream_functions, run_result.stop)
   end
 
-  local result_future = nio.control.future()
-  local result_paths = {}
+  local results = {}
   local stop_streams
 
   nio.run(function()
-    local stop_stream_functions = {}
-    local result = nio.gather(test_run_results)
-    for _, res in ipairs(result) do
-      table.insert(stop_stream_functions, res.stop_stream)
-      table.insert(result_paths, res.result_file)
-    end
+    results = nio.gather(test_run_result_functions)
 
     stop_streams = function()
       for _, stop_stream in ipairs(stop_stream_functions) do
@@ -107,12 +91,12 @@ return function(spec)
       end
     end
 
-    result_future.set()
+    output_finish_future.set()
   end)
 
   return {
     is_complete = function()
-      return result_future.is_set()
+      return output_finish_future.is_set()
     end,
     output = function()
       return output_path
@@ -128,7 +112,7 @@ return function(spec)
         queue.put_nowait(data)
       end)
       return function()
-        local data = nio.first({ queue.get, result_future.wait })
+        local data = nio.first({ queue.get, output_finish_future.wait })
         if data then
           return data
         end
@@ -139,21 +123,15 @@ return function(spec)
     end,
     attach = function() end,
     result = function()
-      result_future.wait()
+      output_finish_future.wait()
       stop_streams()
 
-      local open_err, result_fd = nio.uv.fs_open(spec.context.results_path, "w", 438)
-      assert(not open_err, open_err)
+      logger.debug("neotest-vstest: got parsed results:")
+      logger.debug(results)
 
-      for _, result_path in ipairs(result_paths) do
-        for _, line in ipairs(lib.files.read_lines(result_path)) do
-          local write_err = nio.uv.fs_write(result_fd, line .. "\n", nil)
-          assert(not write_err, write_err)
-        end
+      for _, result in ipairs(results) do
+        spec.context.results[result.id] = result.result
       end
-
-      local close_err = nio.uv.fs_close(result_fd)
-      assert(not close_err, close_err)
 
       return 0
     end,
