@@ -81,9 +81,14 @@ function Client:run_tests(ids)
   end
 
   nio.run(function()
-    local result = cli_wrapper.spin_lock_wait_file(result_file, 5 * 30 * 1000)
-    local success, parsed = pcall(vim.json.decode, result)
-    assert(success, "neotest-vstest: failed to decode result file: " .. result)
+    cli_wrapper.spin_lock_wait_file(result_file, 5 * 30 * 1000)
+    local parsed = {}
+    local results = lib.files.read_lines(result_file)
+    for _, line in ipairs(results) do
+      local success, result = pcall(vim.json.decode, line)
+      assert(success, "neotest-vstest: failed to decode result file: " .. line)
+      parsed[result.id] = result.result
+    end
     result_future.set(parsed)
   end)
 

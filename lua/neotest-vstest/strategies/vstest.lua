@@ -130,7 +130,8 @@ return function(spec)
       logger.debug(results)
 
       for _, result in ipairs(results) do
-        spec.context.results[result.id] = result.result
+        logger.debug("neotest-vstest: extending result with: " .. vim.inspect(result))
+        spec.context.results = vim.tbl_extend("force", spec.context.results, result)
       end
 
       return 0
