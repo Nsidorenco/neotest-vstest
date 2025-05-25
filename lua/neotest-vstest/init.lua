@@ -4,10 +4,10 @@ local types = require("neotest.types")
 local logger = require("neotest.logging")
 
 local utilities = require("neotest-vstest.utilities")
-local vstest = require("neotest-vstest.vstest")
 local test_discovery = require("neotest-vstest.vstest.discovery")
 local cli_wrapper = require("neotest-vstest.vstest.cli_wrapper")
 local vstest_strategy = require("neotest-vstest.strategies.vstest")
+local vstest_debug_strategy = require("neotest-vstest.strategies.vstest_debugger")
 local dotnet_utils = require("neotest-vstest.dotnet_utils")
 
 --- @type dap.Configuration
@@ -352,7 +352,6 @@ function DotnetNeotestAdapter.build_spec(args)
     return
   end
 
-  local pos = args.tree:data()
   local projects = {}
 
   for _, position in tree:iter() do
@@ -364,35 +363,6 @@ function DotnetNeotestAdapter.build_spec(args)
         projects[proj_info] = vim.list_extend(tests, { position.id })
       end
     end
-  end
-
-  local strategy
-  if args.strategy == "dap" then
-    local attached_path = nio.fn.tempname()
-
-    local project = pos.client.project
-
-    if solution then
-      dotnet_utils.build_path(solution)
-    else
-      dotnet_utils.build_project(project)
-    end
-
-    local pid = vstest.debug_tests(project, attached_path, nil, results_path, pos.id)
-    --- @type dap.Configuration
-    strategy = vim.tbl_extend("force", dap_settings, {
-      cwd = project.proj_dir,
-      processId = pid and vim.trim(pid),
-      before = function()
-        local dap = require("dap")
-        dap.listeners.after.configurationDone["neotest-vstest"] = function()
-          nio.run(function()
-            logger.debug("neotest-vstest: attached to debug test runner")
-            lib.files.write(attached_path, "1")
-          end)
-        end
-      end,
-    })
   end
 
   local stream_path = nio.fn.tempname()
@@ -418,7 +388,7 @@ function DotnetNeotestAdapter.build_spec(args)
         return { [parsed.id] = parsed.result }
       end
     end,
-    strategy = strategy or vstest_strategy,
+    strategy = (args.strategy == "dap" and vstest_debug_strategy(dap_settings)) or vstest_strategy,
   }
 end
 

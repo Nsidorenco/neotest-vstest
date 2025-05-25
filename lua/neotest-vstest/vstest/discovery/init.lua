@@ -8,7 +8,28 @@ local M = {}
 local client_creation_semaphore = nio.control.semaphore(1)
 local clients = {}
 
+---@class neotest-vstest.Client.RunResult
+---@field output_stream fun(): string[]
+---@field result_stream async fun(): any
+---@field result_future nio.control.Future
+---@field stop fun()
+---
+---@class neotest-vstest.Client.DebugResult
+---@field pid string
+---@field on_attach fun(): nil
+---@field output_stream fun(): string[]
+---@field result_stream async fun(): any
+---@field result_future nio.control.Future
+---@field stop fun()
+
+---@class neotest-vstest.Client
+---@field run_tests fun(self: neotest-vstest.Client, ids: string|string[]): neotest-vstest.Client.RunResult
+---@field discover_tests fun(self: neotest-vstest.Client): table<string, table>
+---@field discover_tests_for_path fun(self: neotest-vstest.Client, path: string): table<string, table>
+---@field debug_tests fun(self: neotest-vstest.Client, ids: string|string[]): neotest-vstest.Client.DebugResult
+
 ---@param project DotnetProjectInfo?
+---@return neotest-vstest.Client?
 function M.get_client_for_project(project)
   if not project then
     return nil

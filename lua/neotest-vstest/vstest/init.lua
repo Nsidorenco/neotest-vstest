@@ -66,7 +66,7 @@ end
 ---runs tests identified by ids.
 ---@param project DotnetProjectInfo
 ---@param ids string|string[]
----@return string wait_file_path, string result_stream_file_path, string result_file_path
+---@return string process_output_path, string result_stream_file_path, string result_file_path
 function M.run_tests(project, ids)
   local process_output_path = nio.fn.tempname()
   lib.files.write(process_output_path, "")
@@ -93,13 +93,23 @@ end
 
 --- Uses the vstest console to spawn a test process for the debugger to attach to.
 ---@param project DotnetProjectInfo
----@param attached_path string
----@param stream_path string
----@param output_path string
 ---@param ids string|string[]
----@return string? pid
-function M.debug_tests(project, attached_path, stream_path, output_path, ids)
-  local process_output = nio.fn.tempname()
+---@return string? pid, async fun() on_attach, string process_output_path, string result_stream_file_path, string result_file_path
+function M.debug_tests(project, ids)
+  local process_output_path = nio.fn.tempname()
+  lib.files.write(process_output_path, "")
+
+  local attached_path = nio.fn.tempname()
+
+  local on_attach = function()
+    logger.debug("neotest-vstest: Debugger attached, writing to file: " .. attached_path)
+    lib.files.write(attached_path, "1")
+  end
+
+  local result_path = nio.fn.tempname()
+
+  local result_stream_path = nio.fn.tempname()
+  lib.files.write(result_stream_path, "")
 
   local pid_path = nio.fn.tempname()
 
@@ -108,9 +118,9 @@ function M.debug_tests(project, attached_path, stream_path, output_path, ids)
       "debug-tests",
       pid_path,
       attached_path,
-      stream_path,
-      output_path,
-      process_output,
+      result_stream_path,
+      result_path,
+      process_output_path,
       ids,
     })
     :flatten()
@@ -124,7 +134,8 @@ function M.debug_tests(project, attached_path, stream_path, output_path, ids)
 
   local max_wait = 30 * 1000 -- 30 sec
 
-  return cli_wrapper.spin_lock_wait_file(pid_path, max_wait)
+  local pid = cli_wrapper.spin_lock_wait_file(pid_path, max_wait)
+  return pid, on_attach, process_output_path, result_stream_path, result_path
 end
 
 return M
