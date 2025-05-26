@@ -11,8 +11,8 @@ return function(spec)
   if spec.context.solution then
     dotnet_utils.build_path(spec.context.solution)
   else
-    for project, _ in pairs(spec.context.projects_id_map) do
-      dotnet_utils.build_project(project)
+    for client, _ in pairs(spec.context.client_id_map) do
+      dotnet_utils.build_project(client.project)
     end
   end
 
@@ -49,10 +49,7 @@ return function(spec)
   local test_run_result_functions = {}
   local stop_stream_functions = {}
 
-  for project, ids in pairs(spec.context.projects_id_map) do
-    local client = discovery.get_client_for_project(project)
-    assert(client, "failed to get client for project")
-
+  for client, ids in pairs(spec.context.client_id_map) do
     local run_result = client:run_tests(ids)
 
     nio.run(function()

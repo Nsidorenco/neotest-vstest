@@ -215,7 +215,12 @@ function M.get_proj_info(path)
   end
 
   semaphore.release()
-  return proj_data
+  return (
+    proj_data.dll_file ~= ""
+    and proj_data.proj_file ~= ""
+    and (proj_data.is_test_project or proj_data.is_mtp_project)
+    and proj_data
+  ) or nil
 end
 
 local solution_discovery_semaphore = nio.control.semaphore(1)

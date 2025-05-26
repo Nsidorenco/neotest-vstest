@@ -357,11 +357,8 @@ function DotnetNeotestAdapter.build_spec(args)
   for _, position in tree:iter() do
     if position.type == "test" then
       logger.debug(position)
-      local proj_info = position.client.project
-      if proj_info then
-        local tests = projects[proj_info] or {}
-        projects[proj_info] = vim.list_extend(tests, { position.id })
-      end
+      local tests = projects[position.client] or {}
+      projects[position.client] = vim.list_extend(tests, { position.id })
     end
   end
 
@@ -371,7 +368,7 @@ function DotnetNeotestAdapter.build_spec(args)
 
   return {
     context = {
-      projects_id_map = projects,
+      client_id_map = projects,
       solution = solution,
       results = {},
       write_stream = stream.write,

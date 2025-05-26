@@ -35,15 +35,6 @@ local function start_server(dll_path)
         if data then
           logger.trace("neotest-vstest: Received data from mtp: " .. data)
           lsp_client:write(data)
-        else
-          client:shutdown()
-          client:close()
-          if lsp_client then
-            lsp_client:close()
-            lsp_client:shutdown()
-          end
-          server:close()
-          server:shutdown()
         end
       end)
       connected.set()
@@ -55,15 +46,6 @@ local function start_server(dll_path)
         if data then
           logger.trace("neotest-vstest: Received data from lsp: " .. data)
           mtp_client:write(data)
-        else
-          client:shutdown()
-          client:close()
-          if mtp_client then
-            mtp_client:close()
-            mtp_client:shutdown()
-          end
-          server:close()
-          server:shutdown()
         end
       end)
     end
@@ -80,15 +62,16 @@ local function start_server(dll_path)
   }, {
     stdout = function(err, data)
       if data then
-        vim.print(data)
+        logger.info("neotest-vstest: MTP process stdout: " .. data)
       end
       if err then
-        vim.print(err)
+        logger.warn("neotest-vstest: MTP process stdout: " .. data)
       end
     end,
   })
 
   logger.debug("neotest-vstest: MTP process started with PID: " .. process.pid)
+  logger.debug(process.cmd)
 
   logger.debug("neotest-vstest: Waiting for client to connect...")
   connected.wait()
@@ -106,20 +89,15 @@ local function uuid()
   end)
 end
 
----@class MTPClient
----@field discover_tests fun(): any[]
-
 ---@async
 ---@param dll_path string path to test project dll file
----@return MTPClient
-function M.start_client(dll_path)
+function M.create_client(dll_path)
   local server = start_server(dll_path)
   local client = vim.lsp.client.create({
     name = "neotest-mtp",
     cmd = vim.lsp.rpc.connect(server:getsockname().ip, server:getsockname().port),
     root_dir = vim.fs.dirname(dll_path),
     on_exit = function()
-      server:close()
       server:shutdown()
     end,
     before_init = function(params)
@@ -138,16 +116,73 @@ function M.start_client(dll_path)
   })
   assert(client, "Failed to create LSP client")
 
-  local discovery_dict = {}
+  return client
+end
+
+---@async
+---@param dll_path string path to test project dll file
+function M.discovery_tests(dll_path)
+  local client = M.create_client(dll_path)
+
+  local tests = {}
   local discovery_semaphore = nio.control.semaphore(1)
+
+  nio.scheduler()
 
   client.handlers["testing/testUpdates/tests"] = function(err, result, ctx)
     nio.run(function()
       discovery_semaphore.with(function()
-        local previous = discovery_dict[result.runId] or {}
-        local nodes = {}
         for _, test in ipairs(result.changes) do
-          nodes[test.node.uid] = {
+          logger.debug("neotest-vstest: Discovered test: " .. test.node.uid)
+          tests[#tests + 1] = test.node
+        end
+      end)
+    end)
+  end
+
+  client:initialize()
+  local run_id = uuid()
+  local future_result = nio.control.future()
+  client:request("testing/discoverTests", {
+    runId = run_id,
+  }, function(err, _)
+    nio.run(function()
+      if err then
+        future_result.set_error(err)
+      else
+        discovery_semaphore.with(function()
+          future_result.set(tests)
+        end)
+      end
+    end)
+  end)
+
+  local result = future_result.wait()
+
+  logger.debug("neotest-vstest: Discovered test results: " .. vim.inspect(result))
+
+  client:stop(true)
+
+  return result
+end
+
+---@async
+---@param dll_path string path to test project dll file
+---@param nodes any[] list of test nodes to run
+function M.run_tests(dll_path, nodes)
+  local client = M.create_client(dll_path)
+
+  local run_results = {}
+  local discovery_semaphore = nio.control.semaphore(1)
+
+  nio.scheduler()
+
+  client.handlers["testing/testUpdates/tests"] = function(err, result, ctx)
+    nio.run(function()
+      discovery_semaphore.with(function()
+        for _, test in ipairs(result.changes) do
+          logger.debug("neotest-vstest: got test result for: " .. test.node.uid)
+          run_results[test.node.uid] = {
             display_name = test.node["display-name"],
             execution_state = test.node["execution-state"],
             location = {
@@ -161,28 +196,35 @@ function M.start_client(dll_path)
             node_type = test.node["node-type"],
           }
         end
-        discovery_dict[result.runId] = vim.tbl_extend("force", previous, nodes)
       end)
     end)
   end
 
   client:initialize()
+  local run_id = uuid()
+  local future_result = nio.control.future()
+  client:request("testing/runTest", {
+    runId = run_id,
+    testCases = nodes,
+  }, function(err, _)
+    nio.run(function()
+      if err then
+        future_result.set_error(err)
+      else
+        discovery_semaphore.with(function()
+          future_result.set(run_results)
+        end)
+      end
+    end)
+  end)
 
-  return {
-    discover_tests = function()
-      local run_id = uuid()
-      discovery_dict[run_id] = {}
-      client:request_sync("testing/discoverTests", {
-        runId = run_id,
-      })
-      local tests
-      discovery_semaphore.with(function()
-        tests = discovery_dict[run_id]
-      end)
+  local result = future_result.wait()
 
-      vim.print(tests)
-    end,
-  }
+  logger.debug("neotest-vstest: Discovered test results: " .. vim.inspect(result))
+
+  client:stop(true)
+
+  return result
 end
 
 return M

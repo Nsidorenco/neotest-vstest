@@ -19,17 +19,17 @@ return function(dap_config)
     end, nil)
 
     assert(
-      vim.tbl_count(spec.context.projects_id_map) <= 1,
+      vim.tbl_count(spec.context.client_id_map) <= 1,
       "neotest-vstest: cannot debug tests across multiple projects at once"
     )
 
-    local project = vim.tbl_keys(spec.context.projects_id_map)[1]
-    local ids = spec.context.projects_id_map[project]
+    local client = vim.tbl_keys(spec.context.client_id_map)[1]
+    local ids = spec.context.projects_id_map[client]
 
     if spec.context.solution then
       dotnet_utils.build_path(spec.context.solution)
     else
-      dotnet_utils.build_project(project)
+      dotnet_utils.build_project(client.project)
     end
 
     local output_path = nio.fn.tempname()

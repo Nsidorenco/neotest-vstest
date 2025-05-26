@@ -48,12 +48,6 @@ function Client:discover_tests_for_path(path)
   return self.test_cases[path]
 end
 
----@class neotest-vstest.Client.RunResult
----@field output_stream fun(): string[]
----@field result_stream async fun(): any
----@field result_future nio.control.Future
----@field stop fun()
-
 ---@async
 ---@param ids string[] list of test ids to run
 ---@return neotest-vstest.Client.RunResult
