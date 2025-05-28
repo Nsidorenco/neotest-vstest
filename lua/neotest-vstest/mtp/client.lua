@@ -1,5 +1,6 @@
 local nio = require("nio")
 local logger = require("neotest.logging")
+local types = require("neotest.types")
 
 local M = {}
 
@@ -185,20 +186,32 @@ function M.run_tests(dll_path, nodes)
       discovery_semaphore.with(function()
         for _, test in ipairs(result.changes) do
           logger.debug("neotest-vstest: got test result for: " .. test.node.uid)
-          run_results[test.node.uid] = {
-            display_name = test.node["display-name"],
-            execution_state = test.node["execution-state"],
-            location = {
-              file = test.node["location.file"],
-              line_start = test.node["location.line-start"],
-              line_end = test.node["location.line-end"],
-              method = test.node["location.method"],
-              namespace = test.node["location.namespace"],
-              type = test.node["location.type"],
-            },
-            node_type = test.node["node-type"],
+          logger.debug(test)
+          local status_map = {
+            ["passed"] = types.ResultStatus.passed,
+            ["skipped"] = types.ResultStatus.skipped,
+            ["failed"] = types.ResultStatus.failed,
+            ["timed-out"] = types.ResultStatus.failed,
+            ["error"] = types.ResultStatus.failed,
           }
-          result_stream.put({ id = test.node.uid, result = run_results[test.node.uid] })
+
+          local errors = {}
+          if test.node["error.message"] then
+            errors[#errors + 1] = { message = test.node["error.message"] }
+          end
+          if test.node["error.stacktrace"] then
+            errors[#errors + 1] = { message = test.node["error.stacktrace"] }
+          end
+
+          local test_result = {
+            status = status_map[test.node["execution-state"]],
+            short = test.node["standardOutput"]
+              or test.node["error.message"]
+              or test.node["execution-state"],
+            errors = errors,
+          }
+          run_results[test.node.uid] = test_result
+          result_stream.put({ id = test.node.uid, result = test_result })
         end
       end)
     end)
