@@ -169,10 +169,13 @@ end
 ---@async
 ---@param dll_path string path to test project dll file
 ---@param nodes any[] list of test nodes to run
+---@return neotest-vstest.Client.RunResult
 function M.run_tests(dll_path, nodes)
   local client = M.create_client(dll_path)
 
   local run_results = {}
+  local result_stream = nio.control.queue()
+  local output_stream = nio.control.queue()
   local discovery_semaphore = nio.control.semaphore(1)
 
   nio.scheduler()
@@ -195,15 +198,22 @@ function M.run_tests(dll_path, nodes)
             },
             node_type = test.node["node-type"],
           }
+          result_stream.put({ id = test.node.uid, result = run_results[test.node.uid] })
         end
       end)
+    end)
+  end
+
+  client.handlers["client/log"] = function(err, result, ctx)
+    nio.run(function()
+      output_stream.put_nowait(result.message)
     end)
   end
 
   client:initialize()
   local run_id = uuid()
   local future_result = nio.control.future()
-  client:request("testing/runTest", {
+  client:request("testing/runTests", {
     runId = run_id,
     testCases = nodes,
   }, function(err, _)
@@ -222,9 +232,14 @@ function M.run_tests(dll_path, nodes)
 
   logger.debug("neotest-vstest: Discovered test results: " .. vim.inspect(result))
 
-  client:stop(true)
-
-  return result
+  return {
+    output_stream = output_stream.get,
+    result_stream = result_stream.get,
+    result_future = future_result,
+    stop = function()
+      client:stop(true)
+    end,
+  }
 end
 
 return M
