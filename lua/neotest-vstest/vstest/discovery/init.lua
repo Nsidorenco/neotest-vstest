@@ -26,14 +26,14 @@ local function discover_tests_in_projects(projects)
   end
 
   local command = vim
-    .iter({
-      "discover",
-      output_file,
-      wait_file,
-      dlls,
-    })
-    :flatten()
-    :join(" ")
+      .iter({
+        "discover",
+        output_file,
+        wait_file,
+        dlls,
+      })
+      :flatten()
+      :join(" ")
 
   logger.debug("neotest-vstest: Discovering tests using:")
   logger.debug(command)
@@ -114,10 +114,14 @@ function M.discover_project_tests(project, path)
   local rebuilt = false
 
   if
-    project_last_modified
-    and path_last_modified
-    and (project_last_modified < path_last_modified)
+      project_last_modified
+      and path_last_modified
+      and (project_last_modified < path_last_modified)
   then
+    logger.trace("rebuilding project " .. project.proj_file .. " on path: " .. path .. " last modified: "
+      .. project_last_modified
+      .. " path last modified: "
+      .. path_last_modified)
     rebuilt = dotnet_utils.build_project(project)
   end
 
