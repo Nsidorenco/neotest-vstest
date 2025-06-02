@@ -24,7 +24,7 @@ Neotest adapter for dotnet
 
 ## Pre-requisites
 
-neotest-vstest requires makes a number of assumptions about your environment:
+neotest-vstest makes a number of assumptions about your environment:
 
 1. The `dotnet sdk`, and the `dotnet` cli executable in the users runtime path.
 2. (For Debugging) `netcoredbg` is installed and `nvim-dap` plugin has been configured for `netcoredbg` (see debug config for more details)
@@ -37,7 +37,7 @@ neotest-vstest requires makes a number of assumptions about your environment:
 
 ```
 {
-  "nvim-neotest/neotest-vstest"
+  "nsidorenco/neotest-vstest"
 }
 ```
 

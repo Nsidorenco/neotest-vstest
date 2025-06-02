@@ -52,7 +52,7 @@ jobs:
             tree-sitter-c_sharp
             tree-sitter-fsharp
           copy_directories: |
-            "scripts"
+            scripts
           labels: |
             "neovim"
             "neotest"
