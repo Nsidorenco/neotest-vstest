@@ -26,7 +26,7 @@ jobs:
     strategy:
       matrix:
         os: [ubuntu-latest, macos-latest, windows-latest]
-        neovim_version: ["v0.10.0"]
+        neovim_version: ["stable"]
         include:
           - os: ubuntu-latest
             neovim_version: "nightly"
@@ -36,16 +36,6 @@ jobs:
       - uses: actions/setup-dotnet@v4
         with:
           dotnet-version: "9.0.x"
-
-      - name: Install C/C++ Compiler
-        uses: rlalik/setup-cpp-compiler@master
-        with:
-          compiler: clang-latest
-
-      - name: Install tree-sitter CLI
-        uses: baptiste0928/cargo-install@v3
-        with:
-          crate: tree-sitter-cli
 
       - name: Run tests
         id: test
