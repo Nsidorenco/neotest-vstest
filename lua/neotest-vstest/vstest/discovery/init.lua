@@ -32,6 +32,7 @@ function M.get_client_for_project(project)
       elseif project.is_test_project then
         client = Client:new(project)
       end
+      clients[project.proj_file] = client
     end
   end)
   return client

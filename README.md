@@ -12,9 +12,11 @@
 Neotest adapter for dotnet
 
 - Based on the VSTest for dotnet allowing test functionality similar to those found in IDEs like Rider and Visual Studio.
+  - Will use the new [Microsoft.Testing.Platform](https://learn.microsoft.com/en-us/dotnet/core/testing/microsoft-testing-platform-intro?tabs=dotnetcli) when available for newer projects.
 - Supports all testing frameworks.
 - DAP strategy for attaching debug adapter to test execution.
 - Supports `C#` and `F#`.
+- No external dependencies, only the `dotnet sdk` required.
 - Can run tests on many groupings including:
   - All tests
   - Test projects

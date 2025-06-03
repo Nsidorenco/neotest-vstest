@@ -1,5 +1,6 @@
 local nio = require("nio")
 local lib = require("neotest.lib")
+local logger = require("neotest.logging")
 local dotnet_utils = require("neotest-vstest.dotnet_utils")
 local vstest = require("neotest-vstest.vstest")
 local cli_wrapper = require("neotest-vstest.vstest.cli_wrapper")
@@ -21,10 +22,23 @@ function Client:new(project)
   return client
 end
 
-function Client:discover_tests()
+function Client:discover_tests(path)
   self.semaphore.with(function()
-    local last_modified = dotnet_utils.get_project_last_modified(self.project)
+    local last_modified
+    if path then
+      last_modified = files.get_path_last_modified(path)
+    else
+      last_modified = dotnet_utils.get_project_last_modified(self.project)
+    end
     if last_modified and last_modified > self.last_discovered then
+      logger.debug(
+        "neotest-vstest: Discovering tests: "
+          .. " last modified at "
+          .. last_modified
+          .. " last discovered at "
+          .. self.last_discovered
+      )
+      dotnet_utils.build_project(self.project)
       last_modified = dotnet_utils.get_project_last_modified(self.project)
       self.last_discovered = last_modified or 0
       self.test_cases = vstest.discover_tests_in_project(self.project) or {}
@@ -35,16 +49,7 @@ function Client:discover_tests()
 end
 
 function Client:discover_tests_for_path(path)
-  self.semaphore.with(function()
-    local path_last_modified = files.get_path_last_modified(path)
-    if path_last_modified and path_last_modified > self.last_discovered then
-      dotnet_utils.build_project(self.project)
-      local last_modified = dotnet_utils.get_project_last_modified(self.project)
-      self.last_discovered = last_modified
-      self.test_cases = vstest.discover_tests_in_project(self.project) or {}
-    end
-  end)
-
+  self:discover_tests(path)
   return self.test_cases[path]
 end
 

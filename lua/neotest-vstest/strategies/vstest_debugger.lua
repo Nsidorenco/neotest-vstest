@@ -2,7 +2,6 @@ local nio = require("nio")
 local FanoutAccum = require("neotest.types").FanoutAccum
 local logger = require("neotest.logging")
 local dotnet_utils = require("neotest-vstest.dotnet_utils")
-local discovery = require("neotest-vstest.vstest.discovery")
 
 ---@param dap_config table
 ---@return fun(spec: neotest.RunSpec): neotest.Process
@@ -24,7 +23,7 @@ return function(dap_config)
     )
 
     local client = vim.tbl_keys(spec.context.client_id_map)[1]
-    local ids = spec.context.projects_id_map[client]
+    local ids = spec.context.client_id_map[client]
 
     if spec.context.solution then
       dotnet_utils.build_path(spec.context.solution)
@@ -55,9 +54,6 @@ return function(dap_config)
     local finish_future = nio.control.future()
     local result_code
 
-    local client = discovery.get_client_for_project(project)
-    assert(client, "failed to get client for project")
-
     local run_result = client:debug_tests(ids)
 
     nio.run(function()
@@ -80,45 +76,60 @@ return function(dap_config)
       end
     end)
 
-    nio.scheduler()
-    dap.run(
-      vim.tbl_extend(
-        "keep",
-        { env = spec.env, cwd = spec.cwd },
-        dap_config,
-        { processId = vim.trim(run_result.pid), cwd = project.proj_dir }
-      ),
-      {
-        before = function(config)
-          dap.listeners.after.configurationDone["neotest-vstest"] = function()
-            nio.run(run_result.on_attach)
-          end
+    logger.debug("neotest-vstest: starting debug session: " .. vim.inspect(run_result))
 
-          dap.listeners.after.event_output[handler_id] = function(_, body)
-            if vim.tbl_contains({ "stdout", "stderr" }, body.category) then
-              nio.run(function()
-                data_accum:push(body.output)
-              end)
-            end
-          end
-          dap.listeners.after.event_exited[handler_id] = function(_, info)
-            result_code = info.exitCode
-            pcall(finish_future.set)
-          end
-
-          return config
-        end,
-        after = function()
-          local received_exit = result_code ~= nil
-          if not received_exit then
-            result_code = 0
-            pcall(finish_future.set)
-          end
-          dap.listeners.after.event_output[handler_id] = nil
-          dap.listeners.after.event_exited[handler_id] = nil
-        end,
-      }
+    dap_config = vim.tbl_extend(
+      "keep",
+      { env = spec.env, cwd = spec.cwd },
+      dap_config,
+      { processId = run_result.pid, cwd = client.project.proj_dir }
     )
+    --
+    logger.debug("neotest-vstest: dap config: " .. vim.inspect(dap_config))
+
+    local dap_opts = {
+      before = function(config)
+        dap.listeners.after.configurationDone["neotest-vstest"] = function()
+          nio.run(run_result.on_attach)
+        end
+
+        dap.listeners.after.event_output[handler_id] = function(_, body)
+          if vim.tbl_contains({ "stdout", "stderr" }, body.category) then
+            nio.run(function()
+              data_accum:push(body.output)
+            end)
+          end
+        end
+        dap.listeners.after.event_exited[handler_id] = function(_, info)
+          result_code = info.exitCode
+          pcall(finish_future.set)
+        end
+
+        return config
+      end,
+      after = function()
+        local received_exit = result_code ~= nil
+        if not received_exit then
+          result_code = 0
+          pcall(finish_future.set)
+        end
+        dap.listeners.after.event_output[handler_id] = nil
+        dap.listeners.after.event_exited[handler_id] = nil
+      end,
+    }
+
+    logger.debug(
+      "neotest-vstest: starting dap session. Config: "
+        .. vim.inspect(dap_config)
+        .. ", opts: "
+        .. vim.inspect(dap_opts)
+    )
+
+    nio.scheduler()
+    dap.run(dap_config, dap_opts)
+
+    logger.debug("neotest-vstest: returning debug result")
+
     return {
       is_complete = function()
         return result_code ~= nil
@@ -143,9 +154,6 @@ return function(dap_config)
       result = function()
         local result = run_result.result_future.wait()
         run_result.stop()
-
-        logger.debug("neotest-vstest: got parsed results:")
-        logger.debug(result)
 
         logger.debug("neotest-vstest: extending result with: " .. vim.inspect(result))
         spec.context.results = vim.tbl_extend("force", spec.context.results, result)
