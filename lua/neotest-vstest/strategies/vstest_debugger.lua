@@ -40,17 +40,6 @@ return function(dap_config)
       assert(not write_err, write_err)
     end)
 
-    local result_accum = FanoutAccum(function(prev, new)
-      if not prev then
-        return new
-      end
-      return prev .. new
-    end, nil)
-
-    result_accum:subscribe(function(data)
-      spec.context.write_stream(data)
-    end)
-
     local finish_future = nio.control.future()
     local result_code
 
@@ -60,18 +49,18 @@ return function(dap_config)
       while not finish_future.is_set() do
         local data = run_result.output_stream()
         for _, line in ipairs(data) do
-          result_accum:push(line .. "\n")
+          data_accum:push(line .. "\n")
         end
       end
     end)
 
     nio.run(function()
       while not finish_future.is_set() do
-        local data = run_result.result_stream()
-        for _, line in ipairs(data) do
-          logger.debug("neotest-vstest: writing result: ")
-          logger.debug(line)
-          data_accum:push(line)
+        local result = nio.first({ run_result.result_stream(), finish_future.wait })
+        logger.debug("neotest-vstest: got test stream result: ")
+        logger.debug(result)
+        if result then
+          spec.context.write_stream(result)
         end
       end
     end)
@@ -152,10 +141,13 @@ return function(dap_config)
         run_result.stop()
       end,
       result = function()
+        finish_future.wait()
         local result = run_result.result_future.wait()
         run_result.stop()
 
-        logger.debug("neotest-vstest: extending result with: " .. vim.inspect(result))
+        logger.debug("neotest-vstest: got parsed results:")
+        logger.debug(result)
+
         spec.context.results = vim.tbl_extend("force", spec.context.results, result)
 
         return result_code

@@ -237,23 +237,26 @@ function M.run_tests(dll_path, nodes)
   local output_stream = nio.control.queue()
   local discovery_semaphore = nio.control.semaphore(1)
 
-  local on_update = function(err, result, ctx)
+  local on_update = function(_, result)
     discovery_semaphore.with(function()
       for _, test in ipairs(result.changes) do
         local test_result = parseTestResult(test)
         if test_result then
           run_results[test.node.uid] = test_result
-          -- nio.run(function()
-          --   logger.debug("neotest-vstest: preparing to update test result for: " .. test.node.uid)
-          --   result_stream.put({ id = test.node.uid, result = test_result })
-          --   logger.debug("neotest-vstest: Updated test result for: " .. test.node.uid)
-          -- end)
         end
       end
     end)
+    for _, test in ipairs(result.changes) do
+      local test_result = run_results[test.node.uid]
+      if test_result then
+        logger.debug("neotest-vstest: preparing to update test result for: " .. test.node.uid)
+        result_stream.put_nowait({ id = test.node.uid, result = test_result })
+        logger.debug("neotest-vstest: Updated test result for: " .. test.node.uid)
+      end
+    end
   end
 
-  local on_log = function(err, result, ctx)
+  local on_log = function(_, result)
     nio.run(function()
       output_stream.put_nowait({ result.message })
     end)
@@ -312,24 +315,33 @@ function M.debug_tests(dll_path, nodes)
   local output_stream = nio.control.queue()
   local discovery_semaphore = nio.control.semaphore(1)
   local future_result = nio.control.future()
+  local done_event = nio.control.event()
 
-  local on_update = function(err, result, ctx)
+  local on_update = function(_, result)
     discovery_semaphore.with(function()
       for _, test in ipairs(result.changes) do
         local test_result = parseTestResult(test)
-        run_results[test.node.uid] = test_result
-        result_stream.put({ id = test.node.uid, result = test_result })
+        if test_result then
+          run_results[test.node.uid] = test_result
+        end
       end
     end)
   end
 
-  local on_log = function(err, result, ctx)
+  local on_log = function(_, result, _)
     nio.run(function()
       output_stream.put_nowait({ result.message })
     end)
   end
 
   local client_future, mtp_process_pid = M.create_client(dll_path, on_update, on_log, mtp_env)
+
+  nio.run(function()
+    while result_stream.size() > 0 and output_stream.size() > 0 and not future_result.is_set() do
+      nio.sleep(100)
+    end
+    done_event.set()
+  end)
 
   return {
     pid = mtp_process_pid,
@@ -349,6 +361,7 @@ function M.debug_tests(dll_path, nodes)
             future_result.set_error(err)
           else
             discovery_semaphore.with(function()
+              done_event.wait()
               future_result.set(run_results)
             end)
           end

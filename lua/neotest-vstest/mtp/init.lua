@@ -106,7 +106,13 @@ end
 ---@param ids string[] list of test ids to run
 ---@return neotest-vstest.Client.RunResult
 function Client:debug_tests(ids)
-  return mtp_client.debug_tests(self.project.dll_file, ids)
+  local nodes = {}
+  for _, node in ipairs(self.test_nodes) do
+    if vim.tbl_contains(ids, node.uid) then
+      nodes[#nodes + 1] = node
+    end
+  end
+  return mtp_client.debug_tests(self.project.dll_file, nodes)
 end
 
 return Client
