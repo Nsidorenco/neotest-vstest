@@ -130,10 +130,8 @@ local spin_lock = nio.control.semaphore(1)
 ---Repeatly tries to read content. Repeats until the file is non-empty or operation times out.
 ---@param file_path string
 ---@param max_wait integer maximal time to wait for the file to populated in milliseconds.
----@return string?
+---@return boolean
 function M.spin_lock_wait_file(file_path, max_wait)
-  local content
-
   local sleep_time = 25 -- scan every 25 ms
   local tries = 1
   local file_exists = false
@@ -142,7 +140,6 @@ function M.spin_lock_wait_file(file_path, max_wait)
     if lib.files.exists(file_path) then
       spin_lock.with(function()
         file_exists = true
-        content = lib.files.read(file_path)
       end)
     else
       tries = tries + 1
@@ -150,11 +147,11 @@ function M.spin_lock_wait_file(file_path, max_wait)
     end
   end
 
-  if not content then
+  if not file_exists then
     logger.warn(string.format("neotest-vstest: timed out reading content of file %s", file_path))
   end
 
-  return content
+  return file_exists
 end
 
 return M

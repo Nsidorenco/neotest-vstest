@@ -8,7 +8,7 @@ local M = {}
 ---@param project DotnetProjectInfo
 ---@return table?
 function M.discover_tests_in_project(project)
-  local tests_in_files
+  local tests_in_files = {}
 
   local wait_file = nio.fn.tempname()
   local output_file = nio.fn.tempname()
@@ -33,11 +33,27 @@ function M.discover_tests_in_project(project)
   local max_wait = 60 * 1000 -- 60 sec
 
   if cli_wrapper.spin_lock_wait_file(wait_file, max_wait) then
-    local content = cli_wrapper.spin_lock_wait_file(output_file, max_wait)
+    cli_wrapper.spin_lock_wait_file(output_file, max_wait)
+    local lines = lib.files.read_lines(output_file)
 
     logger.debug("neotest-vstest: file has been populated. Extracting test cases...")
 
-    tests_in_files = (content and vim.json.decode(content, { luanil = { object = true } })) or {}
+    for _, line in ipairs(lines) do
+      ---@type { File: string, Test: table }
+      local decoded = vim.json.decode(line, { luanil = { object = true } }) or {}
+      local tests = tests_in_files[decoded.File] or {}
+
+      local test = {
+        [decoded.Test.Id] = {
+          CodeFilePath = decoded.Test.CodeFilePath,
+          DisplayName = decoded.Test.DisplayName,
+          LineNumber = decoded.Test.LineNumber,
+          FullyQualifiedName = decoded.Test.FullyQualifiedName,
+        },
+      }
+
+      tests_in_files[decoded.File] = vim.tbl_extend("force", tests, test)
+    end
 
     -- DisplayName may be almost equal to FullyQualifiedName of a test
     -- In this case the DisplayName contains a lot of redundant information in the neotest tree.
@@ -134,7 +150,8 @@ function M.debug_tests(project, ids)
 
   local max_wait = 30 * 1000 -- 30 sec
 
-  local pid = cli_wrapper.spin_lock_wait_file(pid_path, max_wait)
+  cli_wrapper.spin_lock_wait_file(pid_path, max_wait)
+  local pid = lib.files.read(pid_path)
   return pid, on_attach, process_output_path, result_stream_path, result_path
 end
 

@@ -20,6 +20,17 @@ open Microsoft.VisualStudio.TestPlatform.ObjectModel.Logging
 
 type NeoTestResultError = { message: string }
 
+type NoeTestDiscoveryTestCaseDto =
+    { Id: Guid
+      CodeFilePath: string
+      DisplayName: string
+      LineNumber: int
+      FullyQualifiedName: string }
+
+type NeoTestDiscoveryResult =
+    { File: string
+      Test: NoeTestDiscoveryTestCaseDto }
+
 type NeotestResult =
     { status: string
       short: string
@@ -78,12 +89,6 @@ module TestDiscovery =
             else
                 Console.WriteLine(message)
 
-    type TestCaseDto =
-        { CodeFilePath: string
-          DisplayName: string
-          LineNumber: int
-          FullyQualifiedName: string }
-
     let mutable discoveredTests = Map.empty<string, TestCase seq>
 
     let getTestCases ids =
@@ -117,20 +122,17 @@ module TestDiscovery =
 
                 Console.WriteLine($"Discovered tests for: {testFiles}")
 
-                discoveredTests
-                |> Seq.map (fun x ->
-                    (x.Key,
-                     x.Value
-                     |> Seq.map (fun testCase ->
-                         testCase.Id,
-                         { CodeFilePath = testCase.CodeFilePath
-                           DisplayName = testCase.DisplayName
-                           LineNumber = testCase.LineNumber
-                           FullyQualifiedName = testCase.FullyQualifiedName })
-                     |> Map))
-                |> Map
-                |> JsonConvert.SerializeObject
-                |> testsWriter.WriteLine
+                for file, tests in discoveredTests |> Seq.map (|KeyValue|) do
+                    for test in tests do
+                        { File = file
+                          Test =
+                            { Id = test.Id
+                              CodeFilePath = test.CodeFilePath
+                              DisplayName = test.DisplayName
+                              LineNumber = test.LineNumber
+                              FullyQualifiedName = test.FullyQualifiedName } }
+                        |> JsonConvert.SerializeObject
+                        |> testsWriter.WriteLine
 
                 use waitFileWriter = new StreamWriter(waitFile, append = false)
                 waitFileWriter.WriteLine("1")
