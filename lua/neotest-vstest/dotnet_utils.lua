@@ -148,6 +148,10 @@ function M.get_proj_info(path)
 
   local semaphore
 
+  if not proj_file then
+    return nil
+  end
+
   if project_semaphore[proj_file] then
     semaphore = project_semaphore[proj_file]
   else
