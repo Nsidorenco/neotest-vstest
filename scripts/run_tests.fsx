@@ -38,6 +38,8 @@ type NeotestResult =
       errors: NeoTestResultError array }
 
 module TestDiscovery =
+    open System.Collections.Concurrent
+
     let parseArgs (args: string) =
         args.Split(" ", StringSplitOptions.TrimEntries &&& StringSplitOptions.RemoveEmptyEntries)
         |> Array.tail
@@ -89,16 +91,11 @@ module TestDiscovery =
             else
                 Console.WriteLine(message)
 
-    let mutable discoveredTests = Map.empty<string, TestCase seq>
+    let discoveredTests = ConcurrentDictionary<Guid, TestCase>()
 
-    let getTestCases ids =
-        let idMap =
-            discoveredTests
-            |> Map.values
-            |> Seq.collect (Seq.map (fun testCase -> testCase.Id, testCase))
-            |> Map
-
-        ids |> Array.choose (fun id -> Map.tryFind id idMap)
+    let getTestCases (ids: Guid seq) =
+        discoveredTests
+        |> Seq.choose (fun kv -> if ids |> Seq.contains kv.Key then Some kv.Value else None)
 
     type PlaygroundTestDiscoveryHandler(waitFile: string, outputFile: string) =
         interface ITestDiscoveryEventsHandler2 with
@@ -106,33 +103,34 @@ module TestDiscovery =
                 Console.WriteLine($"Discovered tests: {Seq.length discoveredTestCases}")
 
                 discoveredTestCases
-                |> Seq.groupBy (fun testCase ->
+                |> Seq.iter (fun testCase ->
                     if String.IsNullOrWhiteSpace testCase.CodeFilePath then
-                        testCase.Source
-                    else
-                        testCase.CodeFilePath)
-                |> Seq.iter (fun (file, testCases) ->
-                    Console.WriteLine($"Discovered {Seq.length testCases} tests for: {file}")
-                    discoveredTests <- Map.add file testCases discoveredTests)
+                        testCase.CodeFilePath <- testCase.Source
+
+                    discoveredTests.TryAdd(testCase.Id, testCase) |> ignore)
 
             member _.HandleDiscoveryComplete(_, _) =
                 use testsWriter = new StreamWriter(outputFile, append = false)
 
-                let testFiles = discoveredTests.Keys |> Seq.toArray |> String.concat ", "
+                let testFiles =
+                    discoveredTests.Values
+                    |> Seq.map (fun test -> test.CodeFilePath)
+                    |> Seq.distinct
+                    |> String.concat ", "
 
                 Console.WriteLine($"Discovered tests for: {testFiles}")
 
-                for file, tests in discoveredTests |> Seq.map (|KeyValue|) do
-                    for test in tests do
-                        { File = file
-                          Test =
-                            { Id = test.Id
-                              CodeFilePath = test.CodeFilePath
-                              DisplayName = test.DisplayName
-                              LineNumber = test.LineNumber
-                              FullyQualifiedName = test.FullyQualifiedName } }
-                        |> JsonConvert.SerializeObject
-                        |> testsWriter.WriteLine
+                discoveredTests.Values
+                |> Seq.sortBy (fun testCase -> testCase.CodeFilePath, testCase.LineNumber)
+                |> Seq.map (fun testCase ->
+                    { File = testCase.CodeFilePath
+                      Test =
+                        { Id = testCase.Id
+                          CodeFilePath = testCase.CodeFilePath
+                          DisplayName = testCase.DisplayName
+                          LineNumber = testCase.LineNumber
+                          FullyQualifiedName = testCase.FullyQualifiedName } })
+                |> Seq.iter (JsonConvert.SerializeObject >> testsWriter.WriteLine)
 
                 use waitFileWriter = new StreamWriter(waitFile, append = false)
                 waitFileWriter.WriteLine("1")
@@ -296,6 +294,7 @@ module TestDiscovery =
 
                     Console.WriteLine($"Discovering tests for: {sourcesStr}")
                     r.DiscoverTests(args.Sources, sourceSettings, options, testSession, discoveryHandler)
+                    Console.WriteLine($"Discovering tests for: {sourcesStr}")
                 with e ->
                     Console.WriteLine($"failed to discovery tests for {sourcesStr}. Exception: {e}")
 
@@ -323,7 +322,7 @@ module TestDiscovery =
                         new PlaygroundTestRunHandler(args.StreamPath, args.OutputPath, args.ProcessOutput)
 
                     let debugLauncher = DebugLauncher(args.PidPath, args.AttachedPath)
-                    Console.WriteLine($"Starting {testCases.Length} tests in debug-mode")
+                    Console.WriteLine($"Starting {Seq.length testCases} tests in debug-mode")
 
                     do! Task.Yield()
                     r.RunTestsWithCustomTestHost(testCases, sourceSettings, testHandler, debugLauncher)
