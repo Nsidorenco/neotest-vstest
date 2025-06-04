@@ -93,8 +93,6 @@ end
 ---@param ids string[] list of test ids to run
 ---@return neotest-vstest.Client.RunResult
 function Client:run_tests(ids)
-  logger.debug("neotest-vstest: Running tests with ids: " .. vim.inspect(ids))
-  logger.debug(self)
   local nodes = {}
   for _, node in ipairs(self.test_nodes) do
     if vim.tbl_contains(ids, node.uid) then

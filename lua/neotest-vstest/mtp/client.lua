@@ -93,6 +93,7 @@ end
 ---@param on_update function (err: lsp.ResponseError, result: any, ctx: lsp.HandlerContext)
 ---@param on_log function (err: lsp.ResponseError, result: any, ctx: lsp.HandlerContext)
 ---@param mtp_env? table<string, string> environment variables for the mtp server
+---@return nio.control.Future<vim.lsp.Client> client_future, integer mtp_process_pid
 function M.create_client(dll_path, on_update, on_log, mtp_env)
   local server_future, mtp_process_pid = start_server(dll_path, mtp_env)
   local client_future = nio.control.future()
@@ -188,6 +189,44 @@ function M.discovery_tests(dll_path)
   return result
 end
 
+local status_map = {
+  ["passed"] = types.ResultStatus.passed,
+  ["skipped"] = types.ResultStatus.skipped,
+  ["failed"] = types.ResultStatus.failed,
+  ["timed-out"] = types.ResultStatus.failed,
+  ["error"] = types.ResultStatus.failed,
+}
+
+local function parseTestResult(test)
+  logger.debug("neotest-vstest: got test result for: " .. test.node.uid)
+  logger.debug(test)
+
+  local errors = {}
+  if test.node["error.message"] then
+    errors[#errors + 1] = { message = test.node["error.message"] }
+  end
+  if test.node["error.stacktrace"] then
+    errors[#errors + 1] = { message = test.node["error.stacktrace"] }
+  end
+
+  local outcome = test.node["execution-state"] and status_map[test.node["execution-state"]]
+
+  if not outcome then
+    return nil
+  end
+
+  local default_short_message = (test.node["display-name"] or "") .. outcome
+
+  return {
+    status = outcome,
+    short = test.node["standardOutput"]
+      or test.node["error.message"]
+      or test.node["execution-state"]
+      or default_short_message,
+    errors = errors,
+  }
+end
+
 ---@async
 ---@param dll_path string path to test project dll file
 ---@param nodes any[] list of test nodes to run
@@ -201,33 +240,15 @@ function M.run_tests(dll_path, nodes)
   local on_update = function(err, result, ctx)
     discovery_semaphore.with(function()
       for _, test in ipairs(result.changes) do
-        logger.debug("neotest-vstest: got test result for: " .. test.node.uid)
-        logger.debug(test)
-        local status_map = {
-          ["passed"] = types.ResultStatus.passed,
-          ["skipped"] = types.ResultStatus.skipped,
-          ["failed"] = types.ResultStatus.failed,
-          ["timed-out"] = types.ResultStatus.failed,
-          ["error"] = types.ResultStatus.failed,
-        }
-
-        local errors = {}
-        if test.node["error.message"] then
-          errors[#errors + 1] = { message = test.node["error.message"] }
+        local test_result = parseTestResult(test)
+        if test_result then
+          run_results[test.node.uid] = test_result
+          -- nio.run(function()
+          --   logger.debug("neotest-vstest: preparing to update test result for: " .. test.node.uid)
+          --   result_stream.put({ id = test.node.uid, result = test_result })
+          --   logger.debug("neotest-vstest: Updated test result for: " .. test.node.uid)
+          -- end)
         end
-        if test.node["error.stacktrace"] then
-          errors[#errors + 1] = { message = test.node["error.stacktrace"] }
-        end
-
-        local test_result = {
-          status = status_map[test.node["execution-state"]],
-          short = test.node["standardOutput"]
-            or test.node["error.message"]
-            or test.node["execution-state"],
-          errors = errors,
-        }
-        run_results[test.node.uid] = test_result
-        result_stream.put({ id = test.node.uid, result = test_result })
       end
     end)
   end
@@ -238,15 +259,16 @@ function M.run_tests(dll_path, nodes)
     end)
   end
 
-  local client_future = M.create_client(dll_path, on_update, on_log)
-
-  local client = client_future.wait()
+  ---@type vim.lsp.Client
+  local client = M.create_client(dll_path, on_update, on_log).wait()
 
   nio.scheduler()
 
   client:initialize()
   local run_id = uuid()
   local future_result = nio.control.future()
+  local done_event = nio.control.event()
+
   client:request("testing/runTests", {
     runId = run_id,
     testCases = nodes,
@@ -256,20 +278,24 @@ function M.run_tests(dll_path, nodes)
         future_result.set_error(err)
       else
         discovery_semaphore.with(function()
+          done_event.wait()
           future_result.set(run_results)
         end)
       end
     end)
   end)
 
-  local result = future_result.wait()
-
-  logger.debug("neotest-vstest: Discovered test results: " .. vim.inspect(result))
+  nio.run(function()
+    while result_stream.size() > 0 and output_stream.size() > 0 and not future_result.is_set() do
+      nio.sleep(100)
+    end
+    done_event.set()
+  end)
 
   return {
-    output_stream = output_stream.get,
-    result_stream = result_stream.get,
     result_future = future_result,
+    result_stream = result_stream.get,
+    output_stream = output_stream.get,
     stop = function()
       client:stop(true)
     end,
@@ -290,31 +316,7 @@ function M.debug_tests(dll_path, nodes)
   local on_update = function(err, result, ctx)
     discovery_semaphore.with(function()
       for _, test in ipairs(result.changes) do
-        logger.debug("neotest-vstest: got test result for: " .. test.node.uid)
-        logger.debug(test)
-        local status_map = {
-          ["passed"] = types.ResultStatus.passed,
-          ["skipped"] = types.ResultStatus.skipped,
-          ["failed"] = types.ResultStatus.failed,
-          ["timed-out"] = types.ResultStatus.failed,
-          ["error"] = types.ResultStatus.failed,
-        }
-
-        local errors = {}
-        if test.node["error.message"] then
-          errors[#errors + 1] = { message = test.node["error.message"] }
-        end
-        if test.node["error.stacktrace"] then
-          errors[#errors + 1] = { message = test.node["error.stacktrace"] }
-        end
-
-        local test_result = {
-          status = status_map[test.node["execution-state"]],
-          short = test.node["standardOutput"]
-            or test.node["error.message"]
-            or test.node["execution-state"],
-          errors = errors,
-        }
+        local test_result = parseTestResult(test)
         run_results[test.node.uid] = test_result
         result_stream.put({ id = test.node.uid, result = test_result })
       end

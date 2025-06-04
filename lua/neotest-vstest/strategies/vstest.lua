@@ -25,13 +25,6 @@ return function(spec)
     return prev .. new
   end, nil)
 
-  local result_accum = FanoutAccum(function(prev, new)
-    if not prev then
-      return new
-    end
-    return prev .. new
-  end, nil)
-
   local output_path = nio.fn.tempname()
   local output_open_err, output_fd = nio.uv.fs_open(output_path, "w", 438)
   assert(not output_open_err, output_open_err)
@@ -39,10 +32,6 @@ return function(spec)
   output_accum:subscribe(function(data)
     local write_err = nio.uv.fs_write(output_fd, data, nil)
     assert(not write_err, write_err)
-  end)
-
-  result_accum:subscribe(function(data)
-    spec.context.write_stream(data)
   end)
 
   ---@type function[]
@@ -56,18 +45,18 @@ return function(spec)
       while not output_finish_future.is_set() do
         local data = run_result.output_stream()
         for _, line in ipairs(data) do
-          result_accum:push(line .. "\n")
+          output_accum:push(line .. "\n")
         end
       end
     end)
 
     nio.run(function()
       while not output_finish_future.is_set() do
-        local data = run_result.result_stream()
-        for _, line in ipairs(data) do
-          logger.debug("neotest-vstest: writing result: ")
-          logger.debug(line)
-          output_accum:push(line)
+        local result = nio.first({ run_result.result_stream(), output_finish_future.wait })
+        logger.debug("neotest-vstest: got test stream result: ")
+        logger.debug(result)
+        if result then
+          spec.context.write_stream(data)
         end
       end
     end)
@@ -127,7 +116,6 @@ return function(spec)
       logger.debug(results)
 
       for _, result in ipairs(results) do
-        logger.debug("neotest-vstest: extending result with: " .. vim.inspect(result))
         spec.context.results = vim.tbl_extend("force", spec.context.results, result)
       end
 

@@ -93,8 +93,8 @@ function Client:run_tests(ids)
 
   return {
     result_future = result_future,
-    output_stream = output_stream_data,
     result_stream = result_stream.get,
+    output_stream = output_stream_data,
     stop = stop_stream,
   }
 end
