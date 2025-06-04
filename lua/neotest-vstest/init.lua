@@ -49,9 +49,10 @@ function DotnetNeotestAdapter.is_test_file(file_path)
   end
 
   local project = dotnet_utils.get_proj_info(file_path)
-  local client = test_discovery.get_client_for_project(project)
+  local client = test_discovery.get_client_for_project(project, solution)
 
   local tests = (client and client:discover_tests_for_path(file_path)) or {}
+
   local n = 0
   if tests then
     n = #vim.tbl_values(tests)
@@ -183,7 +184,9 @@ local function get_top_level_tests(project)
     return {}
   end
 
-  local tests_in_file = test_discovery.discover_project_tests(project, project.dll_file)
+  local client = test_discovery.get_client_for_project(project, solution)
+
+  local tests_in_file = (client and client:discover_tests()) or {}
 
   logger.debug(string.format("neotest-vstest: top-level tests in file: %s", project.dll_file))
 
@@ -244,7 +247,7 @@ function DotnetNeotestAdapter.discover_positions(path)
   logger.info(string.format("neotest-vstest: scanning %s for tests...", path))
 
   local project = dotnet_utils.get_proj_info(path)
-  local client = test_discovery.get_client_for_project(project)
+  local client = test_discovery.get_client_for_project(project, solution)
 
   if not client then
     return
