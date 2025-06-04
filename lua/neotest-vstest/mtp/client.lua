@@ -90,8 +90,10 @@ end
 
 ---@async
 ---@param dll_path string path to test project dll file
+---@param on_update function (err: lsp.ResponseError, result: any, ctx: lsp.HandlerContext)
+---@param on_log function (err: lsp.ResponseError, result: any, ctx: lsp.HandlerContext)
 ---@param mtp_env? table<string, string> environment variables for the mtp server
-function M.create_client(dll_path, mtp_env)
+function M.create_client(dll_path, on_update, on_log, mtp_env)
   local server_future, mtp_process_pid = start_server(dll_path, mtp_env)
   local client_future = nio.control.future()
 
@@ -118,7 +120,21 @@ function M.create_client(dll_path, mtp_env)
         },
       },
     })
+
     assert(client, "Failed to create LSP client")
+
+    client.handlers["testing/testUpdates/tests"] = function(err, result, ctx)
+      nio.run(function()
+        on_update(err, result, ctx)
+      end)
+    end
+
+    client.handlers["client/log"] = function(err, result, ctx)
+      nio.run(function()
+        on_log(err, result, ctx)
+      end)
+    end
+
     client_future.set(client)
   end)
 
@@ -128,25 +144,23 @@ end
 ---@async
 ---@param dll_path string path to test project dll file
 function M.discovery_tests(dll_path)
-  local client_future = M.create_client(dll_path)
-
   local tests = {}
   local discovery_semaphore = nio.control.semaphore(1)
+
+  local on_update = function(err, result, ctx)
+    discovery_semaphore.with(function()
+      for _, test in ipairs(result.changes) do
+        logger.debug("neotest-vstest: Discovered test: " .. test.node.uid)
+        tests[#tests + 1] = test.node
+      end
+    end)
+  end
+
+  local client_future = M.create_client(dll_path, on_update, function() end)
 
   local client = client_future.wait()
 
   nio.scheduler()
-
-  client.handlers["testing/testUpdates/tests"] = function(err, result, ctx)
-    nio.run(function()
-      discovery_semaphore.with(function()
-        for _, test in ipairs(result.changes) do
-          logger.debug("neotest-vstest: Discovered test: " .. test.node.uid)
-          tests[#tests + 1] = test.node
-        end
-      end)
-    end)
-  end
 
   client:initialize()
   local run_id = uuid()
@@ -179,58 +193,56 @@ end
 ---@param nodes any[] list of test nodes to run
 ---@return neotest-vstest.Client.RunResult
 function M.run_tests(dll_path, nodes)
-  local client_future = M.create_client(dll_path)
-
   local run_results = {}
   local result_stream = nio.control.queue()
   local output_stream = nio.control.queue()
   local discovery_semaphore = nio.control.semaphore(1)
 
+  local on_update = function(err, result, ctx)
+    discovery_semaphore.with(function()
+      for _, test in ipairs(result.changes) do
+        logger.debug("neotest-vstest: got test result for: " .. test.node.uid)
+        logger.debug(test)
+        local status_map = {
+          ["passed"] = types.ResultStatus.passed,
+          ["skipped"] = types.ResultStatus.skipped,
+          ["failed"] = types.ResultStatus.failed,
+          ["timed-out"] = types.ResultStatus.failed,
+          ["error"] = types.ResultStatus.failed,
+        }
+
+        local errors = {}
+        if test.node["error.message"] then
+          errors[#errors + 1] = { message = test.node["error.message"] }
+        end
+        if test.node["error.stacktrace"] then
+          errors[#errors + 1] = { message = test.node["error.stacktrace"] }
+        end
+
+        local test_result = {
+          status = status_map[test.node["execution-state"]],
+          short = test.node["standardOutput"]
+            or test.node["error.message"]
+            or test.node["execution-state"],
+          errors = errors,
+        }
+        run_results[test.node.uid] = test_result
+        result_stream.put({ id = test.node.uid, result = test_result })
+      end
+    end)
+  end
+
+  local on_log = function(err, result, ctx)
+    nio.run(function()
+      output_stream.put_nowait({ result.message })
+    end)
+  end
+
+  local client_future = M.create_client(dll_path, on_update, on_log)
+
   local client = client_future.wait()
 
   nio.scheduler()
-
-  client.handlers["testing/testUpdates/tests"] = function(err, result, ctx)
-    nio.run(function()
-      discovery_semaphore.with(function()
-        for _, test in ipairs(result.changes) do
-          logger.debug("neotest-vstest: got test result for: " .. test.node.uid)
-          logger.debug(test)
-          local status_map = {
-            ["passed"] = types.ResultStatus.passed,
-            ["skipped"] = types.ResultStatus.skipped,
-            ["failed"] = types.ResultStatus.failed,
-            ["timed-out"] = types.ResultStatus.failed,
-            ["error"] = types.ResultStatus.failed,
-          }
-
-          local errors = {}
-          if test.node["error.message"] then
-            errors[#errors + 1] = { message = test.node["error.message"] }
-          end
-          if test.node["error.stacktrace"] then
-            errors[#errors + 1] = { message = test.node["error.stacktrace"] }
-          end
-
-          local test_result = {
-            status = status_map[test.node["execution-state"]],
-            short = test.node["standardOutput"]
-              or test.node["error.message"]
-              or test.node["execution-state"],
-            errors = errors,
-          }
-          run_results[test.node.uid] = test_result
-          result_stream.put({ id = test.node.uid, result = test_result })
-        end
-      end)
-    end)
-  end
-
-  client.handlers["client/log"] = function(err, result, ctx)
-    nio.run(function()
-      output_stream.put_nowait(result.message)
-    end)
-  end
 
   client:initialize()
   local run_id = uuid()
@@ -268,7 +280,6 @@ function M.debug_tests(dll_path, nodes)
   local mtp_env = {
     ["TESTINGPLATFORM_WAIT_ATTACH_DEBUGGER"] = "1",
   }
-  local client_future, mtp_process_pid = M.create_client(dll_path, mtp_env)
 
   local run_results = {}
   local result_stream = nio.control.queue()
@@ -276,52 +287,52 @@ function M.debug_tests(dll_path, nodes)
   local discovery_semaphore = nio.control.semaphore(1)
   local future_result = nio.control.future()
 
+  local on_update = function(err, result, ctx)
+    discovery_semaphore.with(function()
+      for _, test in ipairs(result.changes) do
+        logger.debug("neotest-vstest: got test result for: " .. test.node.uid)
+        logger.debug(test)
+        local status_map = {
+          ["passed"] = types.ResultStatus.passed,
+          ["skipped"] = types.ResultStatus.skipped,
+          ["failed"] = types.ResultStatus.failed,
+          ["timed-out"] = types.ResultStatus.failed,
+          ["error"] = types.ResultStatus.failed,
+        }
+
+        local errors = {}
+        if test.node["error.message"] then
+          errors[#errors + 1] = { message = test.node["error.message"] }
+        end
+        if test.node["error.stacktrace"] then
+          errors[#errors + 1] = { message = test.node["error.stacktrace"] }
+        end
+
+        local test_result = {
+          status = status_map[test.node["execution-state"]],
+          short = test.node["standardOutput"]
+            or test.node["error.message"]
+            or test.node["execution-state"],
+          errors = errors,
+        }
+        run_results[test.node.uid] = test_result
+        result_stream.put({ id = test.node.uid, result = test_result })
+      end
+    end)
+  end
+
+  local on_log = function(err, result, ctx)
+    nio.run(function()
+      output_stream.put_nowait({ result.message })
+    end)
+  end
+
+  local client_future, mtp_process_pid = M.create_client(dll_path, on_update, on_log, mtp_env)
+
   return {
     pid = mtp_process_pid,
     on_attach = function()
       local client = client_future.wait()
-      client.handlers["testing/testUpdates/tests"] = function(err, result, ctx)
-        nio.run(function()
-          discovery_semaphore.with(function()
-            for _, test in ipairs(result.changes) do
-              logger.debug("neotest-vstest: got test result for: " .. test.node.uid)
-              logger.debug(test)
-              local status_map = {
-                ["passed"] = types.ResultStatus.passed,
-                ["skipped"] = types.ResultStatus.skipped,
-                ["failed"] = types.ResultStatus.failed,
-                ["timed-out"] = types.ResultStatus.failed,
-                ["error"] = types.ResultStatus.failed,
-              }
-
-              local errors = {}
-              if test.node["error.message"] then
-                errors[#errors + 1] = { message = test.node["error.message"] }
-              end
-              if test.node["error.stacktrace"] then
-                errors[#errors + 1] = { message = test.node["error.stacktrace"] }
-              end
-
-              local test_result = {
-                status = status_map[test.node["execution-state"]],
-                short = test.node["standardOutput"]
-                  or test.node["error.message"]
-                  or test.node["execution-state"],
-                errors = errors,
-              }
-              run_results[test.node.uid] = test_result
-              result_stream.put({ id = test.node.uid, result = test_result })
-            end
-          end)
-        end)
-      end
-
-      client.handlers["client/log"] = function(err, result, ctx)
-        nio.run(function()
-          logger.debug("neotest-vstest: Received log message: " .. result.message)
-          output_stream.put_nowait({ result.message })
-        end)
-      end
 
       nio.scheduler()
 
