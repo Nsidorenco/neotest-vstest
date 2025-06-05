@@ -61,71 +61,52 @@ local function get_script(script_name)
   end
 end
 
-local test_runner_map = {}
-local test_runner_semaphore = nio.control.semaphore(1)
-local command_semaphore = {}
-
 ---@param project DotnetProjectInfo
----@param command any
-function M.invoke_test_runner(project, command)
-  local semaphore
-  test_runner_semaphore.with(function()
-    if command[project.proj_file] then
-      semaphore = command_semaphore[project.proj_file]
-    else
-      command_semaphore[project.proj_file] = nio.control.semaphore(1)
-      semaphore = command_semaphore[project.proj_file]
-    end
-  end)
+---@return { execute: fun(content: string), stop: fun() }
+function M.create_test_runner(project)
+  local test_discovery_script = get_script("run_tests.fsx")
+  local testhost_dll = get_vstest_path()
 
-  semaphore.with(function()
-    if test_runner_map[project.dll_file] ~= nil then
-      return
-    end
+  logger.debug("neotest-vstest: found discovery script: " .. test_discovery_script)
+  logger.debug("neotest-vstest: found testhost dll: " .. testhost_dll)
 
-    local test_discovery_script = get_script("run_tests.fsx")
-    local testhost_dll = get_vstest_path()
+  local vstest_command = { "dotnet", "fsi", test_discovery_script, testhost_dll }
 
-    logger.debug("neotest-vstest: found discovery script: " .. test_discovery_script)
-    logger.debug("neotest-vstest: found testhost dll: " .. testhost_dll)
+  logger.info("neotest-vstest: starting vstest console with for " .. project.dll_file .. " with:")
+  logger.info(vstest_command)
 
-    local vstest_command = { "dotnet", "fsi", test_discovery_script, testhost_dll }
-
-    logger.info("neotest-vstest: starting vstest console with for " .. project.dll_file .. " with:")
-    logger.info(vstest_command)
-
-    local process = vim.system(vstest_command, {
-      stdin = true,
-      stdout = function(err, data)
-        if data then
-          logger.trace("neotest-vstest: " .. data)
-        end
-        if err then
-          logger.trace("neotest-vstest " .. err)
-        end
-      end,
-    }, function(obj)
-      vim.schedule(function()
-        vim.notify_once("neotest-vstest: vstest process exited unexpectedly.", vim.log.levels.ERROR)
-      end)
-      logger.warn("neotest-vstest: vstest process died :(")
-      logger.warn(obj.code)
-      logger.warn(obj.signal)
-      logger.warn(obj.stdout)
-      logger.warn(obj.stderr)
+  local process = vim.system(vstest_command, {
+    stdin = true,
+    stdout = function(err, data)
+      if data then
+        logger.trace("neotest-vstest: " .. data)
+      end
+      if err then
+        logger.trace("neotest-vstest " .. err)
+      end
+    end,
+  }, function(obj)
+    vim.schedule(function()
+      vim.notify_once("neotest-vstest: vstest process exited unexpectedly.", vim.log.levels.ERROR)
     end)
-
-    logger.info(string.format("neotest-vstest: spawned vstest process with pid: %s", process.pid))
-
-    test_runner_map[project.dll_file] = function(content)
-      process:write(content .. "\n")
-    end
+    logger.warn("neotest-vstest: vstest process died :(")
+    logger.warn(obj.code)
+    logger.warn(obj.signal)
+    logger.warn(obj.stdout)
+    logger.warn(obj.stderr)
   end)
 
-  return test_runner_map[project.dll_file](command)
-end
+  logger.info(string.format("neotest-vstest: spawned vstest process with pid: %s", process.pid))
 
-local spin_lock = nio.control.semaphore(1)
+  return {
+    execute = function(content)
+      process:write(content .. "\n")
+    end,
+    stop = function()
+      process:kill(0)
+    end,
+  }
+end
 
 ---Repeatly tries to read content. Repeats until the file is non-empty or operation times out.
 ---@param file_path string
@@ -138,9 +119,7 @@ function M.spin_lock_wait_file(file_path, max_wait)
 
   while not file_exists and tries * sleep_time < max_wait do
     if lib.files.exists(file_path) then
-      spin_lock.with(function()
-        file_exists = true
-      end)
+      file_exists = true
     else
       tries = tries + 1
       nio.sleep(sleep_time)

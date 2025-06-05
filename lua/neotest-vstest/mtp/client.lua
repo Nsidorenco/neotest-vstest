@@ -125,15 +125,11 @@ function M.create_client(dll_path, on_update, on_log, mtp_env)
     assert(client, "Failed to create LSP client")
 
     client.handlers["testing/testUpdates/tests"] = function(err, result, ctx)
-      nio.run(function()
-        on_update(err, result, ctx)
-      end)
+      on_update(err, result, ctx)
     end
 
     client.handlers["client/log"] = function(err, result, ctx)
-      nio.run(function()
-        on_log(err, result, ctx)
-      end)
+      on_log(err, result, ctx)
     end
 
     client_future.set(client)
@@ -146,15 +142,14 @@ end
 ---@param dll_path string path to test project dll file
 function M.discovery_tests(dll_path)
   local tests = {}
-  local discovery_semaphore = nio.control.semaphore(1)
 
   local on_update = function(err, result, ctx)
-    discovery_semaphore.with(function()
+    if result.changes then
       for _, test in ipairs(result.changes) do
         logger.debug("neotest-vstest: Discovered test: " .. test.node.uid)
         tests[#tests + 1] = test.node
       end
-    end)
+    end
   end
 
   local client_future = M.create_client(dll_path, on_update, function() end)
@@ -165,35 +160,22 @@ function M.discovery_tests(dll_path)
 
   client:initialize()
   local run_id = uuid()
-  local future_result = nio.control.future()
-  client:request("testing/discoverTests", {
+  client:request_sync("testing/discoverTests", {
     runId = run_id,
-  }, function(err, _)
-    nio.run(function()
-      if err then
-        future_result.set_error(err)
-      else
-        discovery_semaphore.with(function()
-          future_result.set(tests)
-        end)
-      end
-    end)
-  end)
+  })
 
-  local result = future_result.wait()
-
-  logger.debug("neotest-vstest: Discovered test results: " .. vim.inspect(result))
+  logger.debug("neotest-vstest: Discovered test results: " .. vim.inspect(tests))
 
   client:stop(true)
 
-  return result
+  return tests
 end
 
 local status_map = {
   ["passed"] = types.ResultStatus.passed,
   ["skipped"] = types.ResultStatus.skipped,
   ["failed"] = types.ResultStatus.failed,
-  ["timed-out"] = types.ResultStatus.failed,
+  ["timed-out"] = types.ResultStatus.skipped,
   ["error"] = types.ResultStatus.failed,
 }
 
@@ -235,23 +217,25 @@ function M.run_tests(dll_path, nodes)
   local run_results = {}
   local result_stream = nio.control.queue()
   local output_stream = nio.control.queue()
-  local discovery_semaphore = nio.control.semaphore(1)
 
   local on_update = function(_, result)
-    discovery_semaphore.with(function()
+    if result.changes then
+      nio.run(function()
+        for _, test in ipairs(result.changes) do
+          local test_result = run_results[test.node.uid]
+          if test_result then
+            logger.debug("neotest-vstest: preparing to update test result for: " .. test.node.uid)
+            result_stream.put_nowait({ id = test.node.uid, result = test_result })
+            logger.debug("neotest-vstest: Updated test result for: " .. test.node.uid)
+          end
+        end
+      end)
+
       for _, test in ipairs(result.changes) do
         local test_result = parseTestResult(test)
         if test_result then
           run_results[test.node.uid] = test_result
         end
-      end
-    end)
-    for _, test in ipairs(result.changes) do
-      local test_result = run_results[test.node.uid]
-      if test_result then
-        logger.debug("neotest-vstest: preparing to update test result for: " .. test.node.uid)
-        result_stream.put_nowait({ id = test.node.uid, result = test_result })
-        logger.debug("neotest-vstest: Updated test result for: " .. test.node.uid)
       end
     end
   end
@@ -272,18 +256,18 @@ function M.run_tests(dll_path, nodes)
   local future_result = nio.control.future()
   local done_event = nio.control.event()
 
+  logger.debug("neotest-vstest: running tests for: " .. vim.inspect(nodes))
+
   client:request("testing/runTests", {
     runId = run_id,
-    testCases = nodes,
+    tests = nodes,
   }, function(err, _)
     nio.run(function()
       if err then
         future_result.set_error(err)
       else
-        discovery_semaphore.with(function()
-          done_event.wait()
-          future_result.set(run_results)
-        end)
+        done_event.wait()
+        future_result.set(run_results)
       end
     end)
   end)
@@ -313,19 +297,16 @@ function M.debug_tests(dll_path, nodes)
   local run_results = {}
   local result_stream = nio.control.queue()
   local output_stream = nio.control.queue()
-  local discovery_semaphore = nio.control.semaphore(1)
   local future_result = nio.control.future()
   local done_event = nio.control.event()
 
   local on_update = function(_, result)
-    discovery_semaphore.with(function()
-      for _, test in ipairs(result.changes) do
-        local test_result = parseTestResult(test)
-        if test_result then
-          run_results[test.node.uid] = test_result
-        end
+    for _, test in ipairs(result.changes) do
+      local test_result = parseTestResult(test)
+      if test_result then
+        run_results[test.node.uid] = test_result
       end
-    end)
+    end
   end
 
   local on_log = function(_, result, _)
@@ -354,16 +335,14 @@ function M.debug_tests(dll_path, nodes)
       local run_id = uuid()
       client:request("testing/runTests", {
         runId = run_id,
-        testCases = nodes,
+        tests = nodes,
       }, function(err, _)
         nio.run(function()
           if err then
             future_result.set_error(err)
           else
-            discovery_semaphore.with(function()
-              done_event.wait()
-              future_result.set(run_results)
-            end)
+            done_event.wait()
+            future_result.set(run_results)
           end
         end)
       end)

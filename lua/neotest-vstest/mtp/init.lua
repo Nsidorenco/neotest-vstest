@@ -5,6 +5,9 @@ local files = require("neotest-vstest.files")
 local mtp_client = require("neotest-vstest.mtp.client")
 
 --- @class neotest-vstest.mtp-client: neotest-vstest.Client
+--- @field project DotnetProjectInfo
+--- @field semaphore nio.control.Semaphore
+--- @field last_discovered integer
 local Client = {}
 Client.__index = Client
 
@@ -38,29 +41,31 @@ local function map_test_cases(test_nodes)
 end
 
 function Client:discover_tests(path)
-  self.semaphore.with(function()
-    local last_modified
-    if path then
-      last_modified = files.get_path_last_modified(path)
-    else
-      last_modified = dotnet_utils.get_project_last_modified(self.project)
-    end
-    if last_modified and last_modified > self.last_discovered then
-      logger.debug(
-        "neotest-vstest: Discovering tests: "
-          .. " last modified at "
-          .. last_modified
-          .. " last discovered at "
-          .. self.last_discovered
-      )
-      dotnet_utils.build_project(self.project)
-      last_modified = dotnet_utils.get_project_last_modified(self.project)
-      self.last_discovered = last_modified or 0
-      self.test_nodes = mtp_client.discovery_tests(self.project.dll_file)
-      self.test_cases = map_test_cases(self.test_nodes)
-      logger.debug(self.test_cases)
-    end
-  end)
+  self.semaphore.acquire()
+
+  local last_modified
+  if path then
+    last_modified = files.get_path_last_modified(path)
+  else
+    last_modified = dotnet_utils.get_project_last_modified(self.project)
+  end
+  if last_modified and last_modified > self.last_discovered then
+    logger.debug(
+      "neotest-vstest: Discovering tests: "
+        .. " last modified at "
+        .. last_modified
+        .. " last discovered at "
+        .. self.last_discovered
+    )
+    dotnet_utils.build_project(self.project)
+    last_modified = dotnet_utils.get_project_last_modified(self.project)
+    self.last_discovered = last_modified or 0
+    self.test_nodes = mtp_client.discovery_tests(self.project.dll_file)
+    self.test_cases = map_test_cases(self.test_nodes)
+    logger.debug(self.test_cases)
+  end
+
+  self.semaphore.release()
 
   return self.test_cases
 end

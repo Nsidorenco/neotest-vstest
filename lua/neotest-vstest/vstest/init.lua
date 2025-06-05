@@ -8,8 +8,16 @@ local utilities = require("neotest-vstest.utilities")
 local vstest_client = require("neotest-vstest.vstest.client")
 
 --- @class neotest-vstest.vstest-client: neotest-vstest.Client
+--- @field project DotnetProjectInfo
+--- @field semaphore nio.control.Semaphore
+--- @field test_runner { execute: function, stop: function }
 local Client = {}
 Client.__index = Client
+Client.__gc = function(self)
+  if self.test_runner then
+    self.test_runner.stop()
+  end
+end
 
 ---@param project DotnetProjectInfo
 function Client:new(project)
@@ -18,33 +26,39 @@ function Client:new(project)
     test_cases = {},
     last_discovered = 0,
     semaphore = nio.control.semaphore(1),
+    test_runner = cli_wrapper.create_test_runner(project),
   }
   setmetatable(client, self)
   return client
 end
 
 function Client:discover_tests(path)
-  self.semaphore.with(function()
-    local last_modified
-    if path then
-      last_modified = files.get_path_last_modified(path)
-    else
-      last_modified = dotnet_utils.get_project_last_modified(self.project)
-    end
-    if last_modified and last_modified > self.last_discovered then
-      logger.debug(
-        "neotest-vstest: Discovering tests: "
-          .. " last modified at "
-          .. last_modified
-          .. " last discovered at "
-          .. self.last_discovered
-      )
-      dotnet_utils.build_project(self.project)
-      last_modified = dotnet_utils.get_project_last_modified(self.project)
-      self.last_discovered = last_modified or 0
-      self.test_cases = vstest_client.discover_tests_in_project(self.project) or {}
-    end
-  end)
+  self.semaphore.acquire()
+
+  local last_modified
+  if path then
+    last_modified = files.get_path_last_modified(path)
+  else
+    last_modified = dotnet_utils.get_project_last_modified(self.project)
+  end
+  if last_modified and last_modified > self.last_discovered then
+    logger.debug(
+      "neotest-vstest: Discovering tests: "
+        .. " last modified at "
+        .. last_modified
+        .. " last discovered at "
+        .. self.last_discovered
+    )
+    dotnet_utils.build_project(self.project)
+    last_modified = dotnet_utils.get_project_last_modified(self.project)
+    self.last_discovered = last_modified or 0
+    self.test_cases = vstest_client.discover_tests_in_project(
+      self.test_runner.execute,
+      self.project
+    ) or {}
+  end
+
+  self.semaphore.release()
 
   return self.test_cases
 end
@@ -59,7 +73,8 @@ end
 ---@return neotest-vstest.Client.RunResult
 function Client:run_tests(ids)
   local result_future = nio.control.future()
-  local process_output_file, stream_file, result_file = vstest_client.run_tests(self.project, ids)
+  local process_output_file, stream_file, result_file =
+    vstest_client.run_tests(self.test_runner.execute, ids)
 
   local result_stream_data, result_stop_stream = lib.files.stream_lines(stream_file)
   local output_stream_data, output_stop_stream = lib.files.stream_lines(process_output_file)
@@ -106,7 +121,7 @@ end
 function Client:debug_tests(ids)
   local result_future = nio.control.future()
   local pid, on_attach, process_output_file, stream_file, result_file =
-    vstest_client.debug_tests(self.project, ids)
+    vstest_client.debug_tests(self.test_runner.execute, ids)
 
   local result_stream_data, result_stop_stream = lib.files.stream_lines(stream_file)
   local output_stream_data, output_stop_stream = lib.files.stream_lines(process_output_file)
