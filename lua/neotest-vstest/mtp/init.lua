@@ -23,18 +23,23 @@ function Client:new(project)
   return client
 end
 
-local function map_test_cases(test_nodes)
+local function map_test_cases(project, test_nodes)
   local test_cases = {}
   for _, node in ipairs(test_nodes) do
-    local existing = test_cases[node["location.file"]] or {}
-    test_cases[node["location.file"]] = vim.tbl_extend("force", existing, {
-      [node.uid] = {
-        CodeFilePath = node["location.file"],
-        DisplayName = node["display-name"],
-        LineNumber = node["location.line-start"],
-        FullyQualifiedName = node["location.method"],
-      },
-    })
+    local location = node["location.file"] or project.proj_file
+    local existing = test_cases[location] or {}
+    if node.uid then
+      test_cases[location] = vim.tbl_extend("force", existing, {
+        [node.uid] = {
+          CodeFilePath = location,
+          DisplayName = node["display-name"],
+          LineNumber = node["location.line-start"],
+          FullyQualifiedName = node["location.method"],
+        },
+      })
+    else
+      logger.warn("neotest-vstest: failed to map test case: " .. vim.inspect(node))
+    end
   end
 
   return test_cases
@@ -61,7 +66,7 @@ function Client:discover_tests(path)
     last_modified = dotnet_utils.get_project_last_modified(self.project)
     self.last_discovered = last_modified or 0
     self.test_nodes = mtp_client.discovery_tests(self.project.dll_file)
-    self.test_cases = map_test_cases(self.test_nodes)
+    self.test_cases = map_test_cases(self.project, self.test_nodes)
     logger.debug(self.test_cases)
   end
 
