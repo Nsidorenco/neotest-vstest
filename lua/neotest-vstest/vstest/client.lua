@@ -5,9 +5,10 @@ local cli_wrapper = require("neotest-vstest.vstest.cli_wrapper")
 
 local M = {}
 
+---@param runner function
 ---@param project DotnetProjectInfo
 ---@return table?
-function M.discover_tests_in_project(project)
+function M.discover_tests_in_project(runner, project)
   local tests_in_files = {}
 
   local wait_file = nio.fn.tempname()
@@ -26,7 +27,7 @@ function M.discover_tests_in_project(project)
   logger.debug("neotest-vstest: Discovering tests using:")
   logger.debug(command)
 
-  cli_wrapper.invoke_test_runner(project, command)
+  runner(command)
 
   logger.debug("neotest-vstest: Waiting for result file to populated...")
 
@@ -80,10 +81,10 @@ function M.discover_tests_in_project(project)
 end
 
 ---runs tests identified by ids.
----@param project DotnetProjectInfo
+---@param runner function
 ---@param ids string|string[]
 ---@return string process_output_path, string result_stream_file_path, string result_file_path
-function M.run_tests(project, ids)
+function M.run_tests(runner, ids)
   local process_output_path = nio.fn.tempname()
   lib.files.write(process_output_path, "")
 
@@ -102,16 +103,17 @@ function M.run_tests(project, ids)
     })
     :flatten()
     :join(" ")
-  cli_wrapper.invoke_test_runner(project, command)
+
+  runner(command)
 
   return process_output_path, result_stream_path, result_path
 end
 
 --- Uses the vstest console to spawn a test process for the debugger to attach to.
----@param project DotnetProjectInfo
+---@param runner function
 ---@param ids string|string[]
 ---@return string? pid, async fun() on_attach, string process_output_path, string result_stream_file_path, string result_file_path
-function M.debug_tests(project, ids)
+function M.debug_tests(runner, ids)
   local process_output_path = nio.fn.tempname()
   lib.files.write(process_output_path, "")
 
@@ -144,7 +146,7 @@ function M.debug_tests(project, ids)
   logger.debug("neotest-vstest: starting test in debug mode using:")
   logger.debug(command)
 
-  cli_wrapper.invoke_test_runner(project, command)
+  runner(command)
 
   logger.debug("neotest-vstest: Waiting for pid file to populate...")
 
