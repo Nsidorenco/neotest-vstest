@@ -146,7 +146,6 @@ function M.discovery_tests(dll_path)
   local on_update = function(err, result, ctx)
     if result.changes then
       for _, test in ipairs(result.changes) do
-        logger.debug("neotest-vstest: Discovered test: " .. test.node.uid)
         tests[#tests + 1] = test.node
       end
     end

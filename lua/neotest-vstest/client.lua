@@ -21,7 +21,7 @@ function client_discovery.get_client_for_project(project, solution)
 
   if clients[project.proj_file] ~= nil then
     client = clients[project.proj_file]
-    return
+    return client or nil
   end
 
   -- Check if the project is part of a solution.
@@ -81,7 +81,7 @@ function client_discovery.discover_solution_tests(root)
 
   for _, project in ipairs(res.projects) do
     if project.is_test_project or project.is_mtp_project then
-      project_clients[project.proj_file] = client_discovery.get_client_for_project(project)
+      project_clients[project.proj_file] = client_discovery.get_client_for_project(project, root)
     end
   end
 

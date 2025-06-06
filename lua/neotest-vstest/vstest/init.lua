@@ -21,6 +21,7 @@ end
 
 ---@param project DotnetProjectInfo
 function Client:new(project)
+  logger.info("neotest-vstest: Creating new (vstest) client for: " .. vim.inspect(project))
   local client = {
     project = project,
     test_cases = {},
