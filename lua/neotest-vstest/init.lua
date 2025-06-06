@@ -21,6 +21,7 @@ local dap_settings = {
 }
 
 local solution
+local solution_dir
 
 ---@package
 ---@type neotest.Adapter
@@ -28,15 +29,53 @@ local solution
 local DotnetNeotestAdapter = { name = "neotest-vstest" }
 
 function DotnetNeotestAdapter.root(path)
-  local solution_dir = lib.files.match_root_pattern("*.sln")(path)
-    or lib.files.match_root_pattern("*.slnx")(path)
-
   if solution_dir then
-    client_discovery.discover_solution_tests(solution_dir)
-    solution = solution_dir
+    return solution_dir
   end
 
-  return solution_dir or lib.files.match_root_pattern("*.[cf]sproj")(path)
+  local first_solution = lib.files.match_root_pattern("*.sln", "*.slnx")(path)
+
+  local solutions = vim.fs.find(function(name, _)
+    return name:match("%.slnx?$")
+  end, { upward = false, type = "file", path = first_solution, limit = math.huge })
+
+  logger.info(string.format("neotest-vstest: scanning %s for solution file...", first_solution))
+  logger.info(solutions)
+
+  if #solutions > 0 then
+    local solution_dir_future = nio.control.future()
+
+    if #solutions == 1 then
+      solution = solutions[1]
+      solution_dir = vim.fs.dirname(solution)
+      solution_dir_future.set(solution_dir)
+    else
+      vim.ui.select(solutions, {
+        prompt = "Multiple solutions exists. Select a solution file: ",
+        format_item = function(item)
+          return vim.fs.basename(item)
+        end,
+      }, function(selected)
+        nio.run(function()
+          if selected then
+            solution = selected
+            solution_dir = vim.fs.dirname(selected)
+          end
+          logger.info(string.format("neotest-vstest: selected solution file %s", selected))
+          solution_dir_future.set(solution_dir)
+        end)
+      end)
+    end
+
+    if solution_dir_future.wait() then
+      logger.info(string.format("neotest-vstest: found solution file %s", solution))
+      client_discovery.discover_solution_tests(solution)
+      return solution_dir
+    end
+  end
+
+  logger.info(string.format("neotest-vstest: no solution file found in %s", path))
+  return lib.files.match_root_pattern(".git")(path) or path
 end
 
 function DotnetNeotestAdapter.is_test_file(file_path)

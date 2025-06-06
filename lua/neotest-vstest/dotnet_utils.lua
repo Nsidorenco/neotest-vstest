@@ -232,35 +232,31 @@ local solution_discovery_semaphore = nio.control.semaphore(1)
 ---lists all projects in solution.
 ---Falls back to listing all project in directory.
 ---@async
----@param root string
+---@param solution_path string
 ---@return { solution: string?, projects: DotnetProjectInfo[] }
-function dotnet_utils.get_solution_projects(root)
+function dotnet_utils.get_solution_projects(solution_path)
   solution_discovery_semaphore.acquire()
   if project_cache then
     solution_discovery_semaphore.release()
     return project_cache
   end
 
-  local solution = vim.fs.find(function(name)
-    return name:match("%.slnx?$")
-  end, { upward = false, type = "file", path = root, limit = 1 })[1]
-
-  local solution_dir = vim.fs.dirname(solution)
+  local solution_dir = vim.fs.dirname(solution_path)
 
   local projects = {}
 
-  if solution then
+  if solution_path then
     local _, res = lib.process.run({
       "dotnet",
       "sln",
-      solution,
+      solution_path,
       "list",
     }, {
       stderr = false,
       stdout = true,
     })
 
-    logger.debug("neotest-vstest: dotnet sln " .. solution .. " list output:")
+    logger.debug("neotest-vstest: dotnet sln " .. solution_path .. " list output:")
     logger.debug(res.stdout)
 
     local relative_path_projects = vim.list_slice(nio.fn.split(res.stdout, "\n"), 3)
@@ -268,10 +264,10 @@ function dotnet_utils.get_solution_projects(root)
       projects[#projects + 1] = vim.fs.joinpath(solution_dir, project)
     end
   else
-    logger.info("found no solution file in " .. root)
+    logger.info("found no solution file in " .. solution_path)
     projects = vim.fs.find(function(name, _)
       return name:match("%.[cf]sproj$")
-    end, { upward = false, type = "file", path = root })
+    end, { upward = false, type = "file", path = solution_path })
   end
 
   local test_projects = {}
@@ -283,10 +279,10 @@ function dotnet_utils.get_solution_projects(root)
     end
   end
 
-  logger.info("found test projects in " .. root)
+  logger.info("found test projects in " .. solution_dir)
   logger.info(test_projects)
 
-  local res = { solution = solution, projects = test_projects }
+  local res = { solution = solution_path, projects = test_projects }
 
   project_cache = res
 

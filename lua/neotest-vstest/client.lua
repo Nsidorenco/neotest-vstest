@@ -9,9 +9,9 @@ local client_discovery = {}
 local clients = {}
 
 ---@param project DotnetProjectInfo?
----@param solution_dir string? path to the solution directory
+---@param solution string? path to the solution file
 ---@return neotest-vstest.Client?
-function client_discovery.get_client_for_project(project, solution_dir)
+function client_discovery.get_client_for_project(project, solution)
   if not project then
     return nil
   end
@@ -20,12 +20,13 @@ function client_discovery.get_client_for_project(project, solution_dir)
   local client = false
 
   if clients[project.proj_file] ~= nil then
-    return clients[project.proj_file] or nil
+    client = clients[project.proj_file]
+    return
   end
 
   -- Check if the project is part of a solution.
   -- If not then do not create a client.
-  local solution_projects = solution_dir and dotnet_utils.get_solution_projects(solution_dir)
+  local solution_projects = solution and dotnet_utils.get_solution_projects(solution)
   if solution_projects and #solution_projects.projects > 0 then
     if not vim.list_contains(solution_projects.projects, project) then
       logger.debug(
@@ -42,7 +43,7 @@ function client_discovery.get_client_for_project(project, solution_dir)
     )
   else
     logger.debug(
-      "neotest-vstest: no solution projects found, using solution: " .. vim.inspect(solution_dir)
+      "neotest-vstest: no solution projects found, using solution: " .. vim.inspect(solution)
     )
   end
 
