@@ -37,28 +37,35 @@ function DotnetNeotestAdapter.root(path)
 
   local solutions = vim.fs.find(function(name, _)
     return name:match("%.slnx?$")
-  end, { upward = false, type = "file", path = first_solution })
+  end, { upward = false, type = "file", path = first_solution, limit = math.huge })
 
   logger.info(string.format("neotest-vstest: scanning %s for solution file...", first_solution))
+  logger.info(solutions)
 
   if #solutions > 0 then
     local solution_dir_future = nio.control.future()
 
-    vim.ui.select(solutions, {
-      prompt = "Multiple solutions exists. Select a solution file: ",
-      format_item = function(item)
-        return vim.fs.basename(item)
-      end,
-    }, function(selected)
-      nio.run(function()
-        if selected then
-          solution = selected
-          solution_dir = vim.fs.dirname(selected)
-        end
-        logger.info(string.format("neotest-vstest: selected solution file %s", selected))
-        solution_dir_future.set(solution_dir)
+    if #solutions == 1 then
+      solution = solutions[1]
+      solution_dir = vim.fs.dirname(solution)
+      solution_dir_future.set(solution_dir)
+    else
+      vim.ui.select(solutions, {
+        prompt = "Multiple solutions exists. Select a solution file: ",
+        format_item = function(item)
+          return vim.fs.basename(item)
+        end,
+      }, function(selected)
+        nio.run(function()
+          if selected then
+            solution = selected
+            solution_dir = vim.fs.dirname(selected)
+          end
+          logger.info(string.format("neotest-vstest: selected solution file %s", selected))
+          solution_dir_future.set(solution_dir)
+        end)
       end)
-    end)
+    end
 
     if solution_dir_future.wait() then
       logger.info(string.format("neotest-vstest: found solution file %s", solution))
@@ -68,7 +75,7 @@ function DotnetNeotestAdapter.root(path)
   end
 
   logger.info(string.format("neotest-vstest: no solution file found in %s", path))
-  return lib.files.match_root_pattern("*.[cf]sproj")(path)
+  return lib.files.match_root_pattern(".git")(path) or path
 end
 
 function DotnetNeotestAdapter.is_test_file(file_path)
