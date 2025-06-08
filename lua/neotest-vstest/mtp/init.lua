@@ -28,14 +28,18 @@ local function map_test_cases(project, test_nodes)
   local test_cases = {}
   for _, node in ipairs(test_nodes) do
     local location = node["location.file"] or project.proj_file
+    local line_number = node["location.line-start"] or node["location.line-end"] or 0
+    local fully_qualified_name = node["location.type"]
+      or node["location.method"]
+      or node["display-name"]
     local existing = test_cases[location] or {}
     if node.uid then
       test_cases[location] = vim.tbl_extend("force", existing, {
         [node.uid] = {
           CodeFilePath = location,
           DisplayName = node["display-name"],
-          LineNumber = node["location.line-start"],
-          FullyQualifiedName = node["location.method"],
+          LineNumber = line_number,
+          FullyQualifiedName = fully_qualified_name,
         },
       })
     else

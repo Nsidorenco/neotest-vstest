@@ -361,13 +361,14 @@ function DotnetNeotestAdapter.discover_positions(path)
 
     -- add tests which does not have a matching tree-sitter node.
     for id, test in pairs(tests_in_file) do
+      local line = test.LineNumber or 0
       nodes[#nodes + 1] = {
         id = id,
         type = "test",
         path = path,
         name = test.DisplayName,
         qualified_name = test.FullyQualifiedName,
-        range = { test.LineNumber - 1, 0, test.LineNumber - 1, -1 },
+        range = { line - 1, 0, line - 1, -1 },
       }
     end
 
