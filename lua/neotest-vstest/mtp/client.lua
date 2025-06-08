@@ -111,7 +111,7 @@ function M.create_client(dll_path, on_update, on_log, mtp_env)
         params.processId = vim.fn.getpid()
         params.clientInfo = {
           name = "neotest-mtp",
-          version = "1.0",
+          version = "1.8",
         }
       end,
       capabilities = {
