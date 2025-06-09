@@ -25,7 +25,11 @@ function client_discovery.get_client_for_project(project, solution)
   -- If not then do not create a client.
   local solution_projects = solution and dotnet_utils.get_solution_projects(solution)
   if solution_projects and #solution_projects.projects > 0 then
-    if not vim.list_contains(solution_projects.projects, project) then
+    local project_files = vim.tbl_map(function(proj)
+      return proj.proj_file
+    end, solution_projects.projects)
+
+    if not vim.list_contains(project_files, project.proj_file) then
       logger.debug(
         "neotest-vstest: project is not part of the solution projects: "
           .. vim.inspect(solution_projects.projects)
