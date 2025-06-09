@@ -69,7 +69,6 @@ function DotnetNeotestAdapter.root(path)
 
     if solution_dir_future.wait() then
       logger.info(string.format("neotest-vstest: found solution file %s", solution))
-      client_discovery.discover_solution_tests(solution)
       return solution_dir
     end
   end
@@ -96,14 +95,7 @@ function DotnetNeotestAdapter.is_test_file(file_path)
     return false
   end
 
-  local tests = client:discover_tests_for_path(file_path) or {}
-
-  local n = 0
-  if tests then
-    n = #vim.tbl_values(tests)
-  end
-
-  return tests and n > 0
+  return true
 end
 
 function DotnetNeotestAdapter.filter_dir(name)
@@ -190,7 +182,6 @@ local function build_position(source, captured_nodes, tests_in_file, path)
             type = match_type,
             path = path,
             name = test.DisplayName,
-            qualified_name = test.FullyQualifiedName,
             range = { definition:range() },
           })
           tests_in_file[id] = nil
@@ -239,14 +230,14 @@ local function get_top_level_tests(project)
   end
 
   local tests_in_file = (client and client:discover_tests()) or {}
-
+  local tests_in_project = tests_in_file[project.proj_file]
   logger.debug(string.format("neotest-vstest: top-level tests in file: %s", project.dll_file))
 
-  if not tests_in_file or next(tests_in_file) == nil then
+  if not tests_in_project or next(tests_in_project) == nil then
     return
   end
 
-  local n = #tests_in_file
+  local n = #tests_in_project
 
   local nodes = {
     {
@@ -260,16 +251,19 @@ local function get_top_level_tests(project)
   local i = 0
 
   -- add tests which does not have a matching tree-sitter node.
-  for id, test in pairs(tests_in_file) do
+  for id, test in pairs(tests_in_project) do
     nodes[#nodes + 1] = {
       id = id,
       type = "test",
-      path = project.proj_file,
+      path = test.CodeFilePath,
       name = test.DisplayName,
-      qualified_name = test.FullyQualifiedName,
       range = { i, 0, i + 1, -1 },
     }
     i = i + 1
+  end
+
+  if #nodes == 1 then
+    return
   end
 
   local structure = assert(build_structure(nodes, {}, {
@@ -368,13 +362,16 @@ function DotnetNeotestAdapter.discover_positions(path)
         type = "test",
         path = path,
         name = test.DisplayName,
-        qualified_name = test.FullyQualifiedName,
         range = { line - 1, 0, line - 1, -1 },
       }
     end
 
     for _, node in ipairs(nodes) do
       node.client = client
+    end
+
+    if #nodes == 1 then
+      return
     end
 
     local structure = assert(build_structure(nodes, {}, {

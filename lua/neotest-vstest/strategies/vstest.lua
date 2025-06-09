@@ -51,7 +51,7 @@ return function(spec)
 
     nio.run(function()
       while not output_finish_future.is_set() do
-        local result = nio.first({ run_result.result_stream(), output_finish_future.wait })
+        local result = nio.first({ run_result.result_stream, output_finish_future.wait })
         logger.debug("neotest-vstest: got test stream result: ")
         logger.debug(result)
         if result then
