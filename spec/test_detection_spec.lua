@@ -112,11 +112,11 @@ describe("Test test detection", function()
     assert.is_truthy(plugin.is_test_file(test_file))
   end)
 
-  nio.tests.it("filter non-test file", function()
+  nio.tests.it("filter file in non-test project", function()
     local plugin = require("neotest-vstest")
     local dir = vim.fn.getcwd() .. "/spec/samples/test_solution"
 
-    local project_file = dir .. "/src/CSharpTest/CSharpTest.csproj"
+    local project_file = dir .. "/src/ConsoleApp/ConsoleApp.csproj"
 
     assert.is_falsy(plugin.is_test_file(project_file))
   end)
