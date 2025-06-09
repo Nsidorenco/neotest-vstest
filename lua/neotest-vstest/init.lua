@@ -79,10 +79,10 @@ function DotnetNeotestAdapter.root(path)
 end
 
 function DotnetNeotestAdapter.is_test_file(file_path)
-  local isTestFile = (vim.endswith(file_path, ".csproj") or vim.endswith(file_path, ".fsproj"))
+  local isDotnetFile = (vim.endswith(file_path, ".csproj") or vim.endswith(file_path, ".fsproj"))
     or (vim.endswith(file_path, ".cs") or vim.endswith(file_path, ".fs"))
 
-  if not isTestFile then
+  if not isDotnetFile then
     return false
   end
 
@@ -93,9 +93,10 @@ function DotnetNeotestAdapter.is_test_file(file_path)
     logger.debug(
       "neotest-vstest: marking file as non-test file since no client was found: " .. file_path
     )
+    return false
   end
 
-  local tests = (client and client:discover_tests_for_path(file_path)) or {}
+  local tests = client:discover_tests_for_path(file_path) or {}
 
   local n = 0
   if tests then

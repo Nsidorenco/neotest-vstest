@@ -13,15 +13,12 @@ local clients = {}
 ---@return neotest-vstest.Client?
 function client_discovery.get_client_for_project(project, solution)
   if not project then
+    logger.debug("neotest-vstest: No project provided, returning nil client.")
     return nil
   end
 
-  ---@type neotest-vstest.Client | boolean
-  local client = false
-
   if clients[project.proj_file] ~= nil then
-    client = clients[project.proj_file]
-    return client or nil
+    return clients[project.proj_file] or nil
   end
 
   -- Check if the project is part of a solution.
@@ -35,17 +32,17 @@ function client_discovery.get_client_for_project(project, solution)
           .. ", project: "
           .. vim.inspect(project)
       )
-      clients[project.proj_file] = client
+      clients[project.proj_file] = false
       return
     end
-    logger.debug(
-      "neotest-vstest: project is part of the solution projects: " .. vim.inspect(project)
-    )
   else
     logger.debug(
-      "neotest-vstest: no solution projects found, using solution: " .. vim.inspect(solution)
+      "neotest-vstest: no solution projects found for solution: " .. vim.inspect(solution)
     )
   end
+
+  ---@type neotest-vstest.Client
+  local client
 
   -- Project is part of a solution or standalone, create a client.
   if project.is_mtp_project then
@@ -58,9 +55,17 @@ function client_discovery.get_client_for_project(project, solution)
     client = mtp_client:new(project)
   elseif project.is_test_project then
     client = vstest_client:new(project)
+  else
+    logger.warn(
+      "neotest-vstest: Project is neither test project nor mtp project, returning nil client for "
+        .. project.proj_file
+    )
+    clients[project.proj_file] = false
+    return
   end
+
   clients[project.proj_file] = client
-  return client or nil
+  return client
 end
 
 local solution_cache
