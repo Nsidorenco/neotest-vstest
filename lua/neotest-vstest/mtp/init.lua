@@ -11,8 +11,15 @@ local mtp_client = require("neotest-vstest.mtp.client")
 local Client = {}
 Client.__index = Client
 
+local clients = {}
+
 ---@param project DotnetProjectInfo
 function Client:new(project)
+  if clients[project.proj_file] then
+    logger.info("neotest-vstest: Reusing existing (MTP) client for: " .. vim.inspect(project))
+    return clients[project.proj_file]
+  end
+
   logger.info("neotest-vstest: Creating new (MTP) client for: " .. vim.inspect(project))
   local client = {
     project = project,
@@ -21,6 +28,9 @@ function Client:new(project)
     semaphore = nio.control.semaphore(1),
   }
   setmetatable(client, self)
+
+  clients[project.proj_file] = client
+
   return client
 end
 

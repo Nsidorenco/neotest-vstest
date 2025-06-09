@@ -19,8 +19,15 @@ Client.__gc = function(self)
   end
 end
 
+local clients = {}
+
 ---@param project DotnetProjectInfo
 function Client:new(project)
+  if clients[project.proj_file] then
+    logger.info("neotest-vstest: Reusing existing (vstest) client for: " .. vim.inspect(project))
+    return clients[project.proj_file]
+  end
+
   logger.info("neotest-vstest: Creating new (vstest) client for: " .. vim.inspect(project))
   local client = {
     project = project,
@@ -30,6 +37,9 @@ function Client:new(project)
     test_runner = cli_wrapper.create_test_runner(project),
   }
   setmetatable(client, self)
+
+  clients[project.proj_file] = client
+
   return client
 end
 

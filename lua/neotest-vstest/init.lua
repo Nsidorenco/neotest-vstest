@@ -262,8 +262,8 @@ local function get_top_level_tests(project)
     i = i + 1
   end
 
-  if #nodes == 1 then
-    return
+  if #nodes <= 1 then
+    return {}
   end
 
   local structure = assert(build_structure(nodes, {}, {
@@ -370,8 +370,8 @@ function DotnetNeotestAdapter.discover_positions(path)
       node.client = client
     end
 
-    if #nodes == 1 then
-      return
+    if #nodes <= 1 then
+      return {}
     end
 
     local structure = assert(build_structure(nodes, {}, {
@@ -445,7 +445,7 @@ function DotnetNeotestAdapter.build_spec(args)
   }
 end
 
-function DotnetNeotestAdapter.results(spec, result, _tree)
+function DotnetNeotestAdapter.results(spec, result)
   logger.info("neotest-vstest: waiting for test results")
   logger.debug(spec)
   logger.debug(result)

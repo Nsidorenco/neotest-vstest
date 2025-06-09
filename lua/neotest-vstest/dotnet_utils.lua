@@ -316,6 +316,7 @@ function dotnet_utils.build_path(path)
     nio.scheduler()
     logger.error("neotest-vstest: failed to build path " .. path)
     logger.error(out.stdout)
+    logger.error(out.stderr)
     vim.notify_once("neotest-vstest: failed to build project " .. path, vim.log.levels.ERROR)
     return false
   end
