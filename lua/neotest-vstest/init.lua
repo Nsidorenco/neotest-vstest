@@ -455,7 +455,7 @@ function DotnetNeotestAdapter.results(spec, result)
   if not results then
     for _, id in ipairs(vim.tbl_values(spec.context.projects_id_map)) do
       results[id] = {
-        status = types.ResultStatus.failed,
+        status = types.ResultStatus.skipped,
         output = spec.context.result_path,
         errors = {
           { message = result.output },

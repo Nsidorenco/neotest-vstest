@@ -7,11 +7,13 @@ local dotnet_utils = require("neotest-vstest.dotnet_utils")
 ---@param spec neotest.RunSpec
 ---@return neotest.Process
 return function(spec)
-  if spec.context.solution then
-    dotnet_utils.build_path(spec.context.solution)
-  else
-    for client, _ in pairs(spec.context.client_id_map) do
-      dotnet_utils.build_project(client.project)
+  if vim.tbl_count(spec.context.client_id_map) > 0 then
+    if spec.context.solution then
+      dotnet_utils.build_path(spec.context.solution)
+    else
+      for client, _ in pairs(spec.context.client_id_map) do
+        dotnet_utils.build_project(client.project)
+      end
     end
   end
 
@@ -55,7 +57,7 @@ return function(spec)
         logger.debug("neotest-vstest: got test stream result: ")
         logger.debug(result)
         if result then
-          spec.context.write_stream(data)
+          spec.context.write_stream(result)
         end
       end
     end)
@@ -68,14 +70,15 @@ return function(spec)
   local stop_streams
 
   nio.run(function()
-    results = nio.gather(test_run_result_functions)
+    if #test_run_result_functions > 0 then
+      results = nio.gather(test_run_result_functions)
 
-    stop_streams = function()
-      for _, stop_stream in ipairs(stop_stream_functions) do
-        stop_stream()
+      stop_streams = function()
+        for _, stop_stream in ipairs(stop_stream_functions) do
+          stop_stream()
+        end
       end
     end
-
     output_finish_future.set()
   end)
 
@@ -109,7 +112,9 @@ return function(spec)
     attach = function() end,
     result = function()
       output_finish_future.wait()
-      stop_streams()
+      if stop_streams then
+        stop_streams()
+      end
 
       logger.debug("neotest-vstest: got parsed results:")
       logger.debug(results)
