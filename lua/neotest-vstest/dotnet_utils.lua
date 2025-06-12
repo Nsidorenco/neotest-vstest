@@ -201,6 +201,7 @@ function dotnet_utils.get_proj_info(path)
 
   local is_mtp_disabled = properties.DisableTestingPlatformServerCapability == "true"
 
+  ---@class DotnetProjectInfo
   local proj_data = {
     proj_file = proj_file,
     dll_file = properties.TargetPath,
@@ -208,6 +209,12 @@ function dotnet_utils.get_proj_info(path)
     is_test_project = properties.IsTestProject == "true",
     is_mtp_project = not is_mtp_disabled and properties.IsTestingPlatformApplication == "true",
   }
+
+  setmetatable(proj_data, {
+    __eq = function(a, b)
+      return a.proj_file == b.proj_file
+    end,
+  })
 
   if proj_data.dll_file == "" then
     logger.debug("neotest-vstest: failed to find dll file for " .. proj_file)
