@@ -62,6 +62,7 @@ function M.discover_tests_in_project(runner, project)
     -- we can shorten the display name to the section after the last period
     local short_test_names = {}
     for path, test_cases in pairs(tests_in_files) do
+      path = vim.fs.normalize(path)
       short_test_names[path] = {}
       for id, test in pairs(test_cases) do
         local short_name = test.DisplayName

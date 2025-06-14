@@ -38,6 +38,7 @@ local function map_test_cases(project, test_nodes)
   local test_cases = {}
   for _, node in ipairs(test_nodes) do
     local location = node["location.file"] or project.proj_file
+    location = location and vim.fs.normalize(location)
     local line_number = node["location.line-start"] or node["location.line-end"] or 0
     local fully_qualified_name = node["location.type"]
       or node["location.method"]
@@ -92,6 +93,7 @@ end
 
 function Client:discover_tests_for_path(path)
   self:discover_tests(path)
+  path = vim.fs.normalize(path)
   return self.test_cases[path]
 end
 
