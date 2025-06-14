@@ -311,6 +311,7 @@ function DotnetNeotestAdapter.discover_positions(path)
   local tests_in_file = client:discover_tests_for_path(path)
 
   if not tests_in_file or next(tests_in_file) == nil then
+    logger.debug(string.format("neotest-vstest: no tests found for file %s", path))
     return
   end
 

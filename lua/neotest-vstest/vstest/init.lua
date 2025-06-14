@@ -76,6 +76,7 @@ end
 
 function Client:discover_tests_for_path(path)
   self:discover_tests(path)
+  path = vim.fs.normalize(path)
   return self.test_cases[path]
 end
 
