@@ -42,7 +42,8 @@ function M.discover_tests_in_project(runner, project)
     for _, line in ipairs(lines) do
       ---@type { File: string, Test: table }
       local decoded = vim.json.decode(line, { luanil = { object = true } }) or {}
-      local tests = tests_in_files[decoded.File] or {}
+      local file = vim.fs.normalize(decoded.File or "")
+      local tests = tests_in_files[file] or {}
 
       local test = {
         [decoded.Test.Id] = {
@@ -53,7 +54,7 @@ function M.discover_tests_in_project(runner, project)
         },
       }
 
-      tests_in_files[decoded.File] = vim.tbl_extend("force", tests, test)
+      tests_in_files[file] = vim.tbl_extend("force", tests, test)
     end
 
     -- DisplayName may be almost equal to FullyQualifiedName of a test
@@ -62,7 +63,6 @@ function M.discover_tests_in_project(runner, project)
     -- we can shorten the display name to the section after the last period
     local short_test_names = {}
     for path, test_cases in pairs(tests_in_files) do
-      path = vim.fs.normalize(path)
       short_test_names[path] = {}
       for id, test in pairs(test_cases) do
         local short_name = test.DisplayName
