@@ -42,7 +42,8 @@ function M.discover_tests_in_project(runner, project)
     for _, line in ipairs(lines) do
       ---@type { File: string, Test: table }
       local decoded = vim.json.decode(line, { luanil = { object = true } }) or {}
-      local tests = tests_in_files[decoded.File] or {}
+      local file = vim.fs.normalize(decoded.File or "")
+      local tests = tests_in_files[file] or {}
 
       local test = {
         [decoded.Test.Id] = {
@@ -53,7 +54,7 @@ function M.discover_tests_in_project(runner, project)
         },
       }
 
-      tests_in_files[decoded.File] = vim.tbl_extend("force", tests, test)
+      tests_in_files[file] = vim.tbl_extend("force", tests, test)
     end
 
     -- DisplayName may be almost equal to FullyQualifiedName of a test

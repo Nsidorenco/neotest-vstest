@@ -116,6 +116,7 @@ local project_semaphore = {}
 ---@param path string
 ---@return DotnetProjectInfo?
 function dotnet_utils.get_proj_info(path)
+  path = vim.fs.normalize(path)
   logger.debug("neotest-vstest: getting project info for " .. path)
 
   local proj_file
@@ -208,7 +209,7 @@ function dotnet_utils.get_proj_info(path)
 
   ---@class DotnetProjectInfo
   local proj_data = {
-    proj_file = proj_file,
+    proj_file = vim.fs.normalize(proj_file),
     dll_file = properties.TargetPath,
     proj_dir = properties.MSBuildProjectDirectory,
     is_test_project = properties.IsTestProject == "true",
@@ -217,7 +218,7 @@ function dotnet_utils.get_proj_info(path)
 
   setmetatable(proj_data, {
     __eq = function(a, b)
-      return a.proj_file == b.proj_file
+      return vim.fs.normalize(a.proj_file or "") == vim.fs.normalize(b.proj_file or "")
     end,
   })
 
@@ -230,7 +231,7 @@ function dotnet_utils.get_proj_info(path)
   proj_info_cache[proj_data.proj_file] = proj_data
 
   for _, item in ipairs(output.Items.Compile) do
-    file_to_project_map[item.FullPath] = proj_data.proj_file
+    file_to_project_map[vim.fs.normalize(item.FullPath)] = proj_data.proj_file
   end
 
   semaphore.release()
