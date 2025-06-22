@@ -22,6 +22,7 @@ local dap_settings = {
 
 local solution
 local solution_dir
+local solution_projects
 
 ---@package
 ---@type neotest.Adapter
@@ -36,6 +37,7 @@ function DotnetNeotestAdapter.root(path)
   if vim.g.roslyn_nvim_selected_solution then
     solution = vim.g.roslyn_nvim_selected_solution
     solution_dir = vim.fs.dirname(solution)
+    solution_projects = dotnet_utils.projects(solution)
     logger.info(string.format("neotest-vstest: using solution from roslyn.nvim %s", solution))
     return solution_dir
   end
@@ -76,6 +78,7 @@ function DotnetNeotestAdapter.root(path)
 
     if solution_dir_future.wait() then
       logger.info(string.format("neotest-vstest: found solution file %s", solution))
+      solution_projects = dotnet_utils.projects(solution)
       return solution_dir
     end
   end
@@ -105,8 +108,28 @@ function DotnetNeotestAdapter.is_test_file(file_path)
   return true
 end
 
-function DotnetNeotestAdapter.filter_dir(name)
+function DotnetNeotestAdapter.filter_dir(name, rel_path, root)
   if name == "bin" or name == "obj" then
+    return false
+  end
+
+  -- Filter out directories that are not part of the solution (if there is a solution)
+  local fullpath = vim.fs.joinpath(root, rel_path)
+  local project_dir = vim.fs.root(fullpath, function(path, _)
+    return path:match("%.[cf]sproj$")
+  end)
+
+  -- We cannot determine if the file is a test file without a project directory.
+  -- Keep searching the child by not filtering it out
+  if not project_dir then
+    return true
+  end
+
+  local found = vim.iter(solution_projects or {}):any(function(project)
+    return vim.fs.dirname(project) == project_dir
+  end)
+
+  if solution_projects and not found then
     return false
   end
 
