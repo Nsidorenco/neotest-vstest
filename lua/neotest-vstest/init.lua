@@ -33,6 +33,13 @@ function DotnetNeotestAdapter.root(path)
     return solution_dir
   end
 
+  if vim.g.roslyn_nvim_selected_solution then
+    solution = vim.g.roslyn_nvim_selected_solution
+    solution_dir = vim.fs.dirname(solution)
+    logger.info(string.format("neotest-vstest: using solution from roslyn.nvim %s", solution))
+    return solution_dir
+  end
+
   local first_solution = lib.files.match_root_pattern("*.sln", "*.slnx")(path)
 
   local solutions = vim.fs.find(function(name, _)
