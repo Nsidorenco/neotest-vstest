@@ -245,6 +245,31 @@ end
 
 local solution_discovery_semaphore = nio.control.semaphore(1)
 
+---@param solution_path string
+---@return string[]
+function dotnet_utils.projects(solution_path)
+  local _, res = lib.process.run({
+    "dotnet",
+    "sln",
+    solution_path,
+    "list",
+  }, {
+    stderr = false,
+    stdout = true,
+  })
+
+  local solution_dir = vim.fs.dirname(solution_path)
+  logger.debug("neotest-vstest: dotnet sln " .. solution_path .. " list output:")
+  logger.debug(res.stdout)
+
+  local relative_path_projects = vim.list_slice(nio.fn.split(res.stdout, "\n"), 3)
+  local projects = {}
+  for _, project in ipairs(relative_path_projects) do
+    projects[#projects + 1] = vim.fs.joinpath(solution_dir, project)
+  end
+  return projects
+end
+
 ---lists all projects in solution.
 ---Falls back to listing all project in directory.
 ---@async
@@ -262,23 +287,7 @@ function dotnet_utils.get_solution_projects(solution_path)
   local projects = {}
 
   if solution_path then
-    local _, res = lib.process.run({
-      "dotnet",
-      "sln",
-      solution_path,
-      "list",
-    }, {
-      stderr = false,
-      stdout = true,
-    })
-
-    logger.debug("neotest-vstest: dotnet sln " .. solution_path .. " list output:")
-    logger.debug(res.stdout)
-
-    local relative_path_projects = vim.list_slice(nio.fn.split(res.stdout, "\n"), 3)
-    for _, project in ipairs(relative_path_projects) do
-      projects[#projects + 1] = vim.fs.joinpath(solution_dir, project)
-    end
+    projects = dotnet_utils.projects(solution_path)
   else
     logger.info("found no solution file in " .. solution_path)
     projects = vim.fs.find(function(name, _)
