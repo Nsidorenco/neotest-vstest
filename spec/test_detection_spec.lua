@@ -17,7 +17,11 @@ describe("Test test detection", function()
       log_level = 0,
     })
     plugin = require("neotest-vstest")
-    plugin.root(solution_path)
+
+    -- `root` is an async function. Use `nio.create` to be able to
+    -- run it in synchronous context as lazy_setup is not async
+    local root = nio.create(plugin.root, 1)
+    root(solution_path)
   end)
 
   nio.tests.it("detect tests in fsharp file", function()
