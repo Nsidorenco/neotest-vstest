@@ -66,6 +66,11 @@ require("neotest").setup({
       dap_settings = {
         type = "netcoredbg",
       }
+      -- If multiple solutions exists the adapter will ask you to choose one.
+      -- If you have a different heuristic for choosing a solution you can provide a function here.
+      solution_selector = function(solutions)
+        return nil -- return the solution you want to use or nil to let the adapter choose.
+      end
     })
   }
 })
