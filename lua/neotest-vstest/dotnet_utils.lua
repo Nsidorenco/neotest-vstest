@@ -284,25 +284,20 @@ function dotnet_utils.get_solution_projects(solution_path)
 
   local solution_dir = vim.fs.dirname(solution_path)
 
-  local projects = {}
+  local projects = dotnet_utils.projects(solution_path)
 
-  if solution_path then
-    projects = dotnet_utils.projects(solution_path)
-  else
-    logger.info("found no solution file in " .. solution_path)
-    projects = vim.fs.find(function(name, _)
-      return name:match("%.[cf]sproj$")
-    end, { upward = false, type = "file", path = solution_path })
-  end
-
-  local test_projects = {}
+  local _test_projects = {}
 
   for _, project in ipairs(projects) do
-    local project_info = dotnet_utils.get_proj_info(project)
-    if project_info and project_info.is_test_project then
-      test_projects[#test_projects + 1] = project_info
+    _test_projects[#_test_projects + 1] = function()
+      local project_info = dotnet_utils.get_proj_info(project)
+      if project_info and project_info.is_test_project then
+        return project_info
+      end
     end
   end
+
+  local test_projects = nio.gather(_test_projects)
 
   logger.info("found test projects in " .. solution_dir)
   logger.info(test_projects)
