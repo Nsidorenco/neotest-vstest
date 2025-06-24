@@ -57,14 +57,14 @@ local function create_adapter(config)
 
     solution = config.solution_selector and config.solution_selector(solutions) or nil
 
-    if solution then
-      solution_dir = vim.fs.dirname(solution)
-      solution_projects = dotnet_utils.projects(solution)
-      return solution_dir
-    else
-      if #solutions > 0 then
-        local solution_dir_future = nio.control.future()
+    if solution or #solutions > 0 then
+      local solution_dir_future = nio.control.future()
 
+      if solution then
+        solution_dir = vim.fs.dirname(solution)
+        solution_projects = dotnet_utils.projects(solution)
+        solution_dir_future.set(solution_dir)
+      else
         if #solutions == 1 then
           solution = solutions[1]
           solution_dir = vim.fs.dirname(solution)
@@ -90,6 +90,7 @@ local function create_adapter(config)
         if solution_dir_future.wait() and solution then
           logger.info(string.format("neotest-vstest: found solution file %s", solution))
           solution_projects = dotnet_utils.projects(solution)
+          dotnet_utils.build_path(solution)
           return solution_dir
         end
       end

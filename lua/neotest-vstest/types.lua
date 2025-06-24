@@ -19,7 +19,7 @@
 ---@field stop fun()
 
 ---@class neotest-vstest.Client
+---@field test_cases table<string, table<string, neotest-vstest.TestCase>>
+---@field discover_tests fun(self: neotest-vstest.Client): table<string, table<string, neotest-vstest.TestCase>>
 ---@field run_tests fun(self: neotest-vstest.Client, ids: string|string[]): neotest-vstest.Client.RunResult
----@field discover_tests fun(self: neotest-vstest.Client, path?: string): table<string, table<string, neotest-vstest.TestCase>>
----@field discover_tests_for_path fun(self: neotest-vstest.Client, path: string): table<string, table<string, neotest-vstest.TestCase>>
 ---@field debug_tests fun(self: neotest-vstest.Client, ids: string|string[]): neotest-vstest.Client.DebugResult

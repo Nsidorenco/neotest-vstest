@@ -1,16 +1,13 @@
 local nio = require("nio")
 local lib = require("neotest.lib")
 local logger = require("neotest.logging")
-local dotnet_utils = require("neotest-vstest.dotnet_utils")
 local cli_wrapper = require("neotest-vstest.vstest.cli_wrapper")
-local files = require("neotest-vstest.files")
 local utilities = require("neotest-vstest.utilities")
 local vstest_client = require("neotest-vstest.vstest.client")
 
 --- @class neotest-vstest.vstest-client: neotest-vstest.Client
 --- @field project DotnetProjectInfo
---- @field semaphore nio.control.Semaphore
---- @field test_runner { execute: function, stop: function }
+--- @field private test_runner { execute: function, stop: function }
 local Client = {}
 Client.__index = Client
 Client.__gc = function(self)
@@ -19,65 +16,25 @@ Client.__gc = function(self)
   end
 end
 
-local clients = {}
-
 ---@param project DotnetProjectInfo
 function Client:new(project)
-  if clients[project.proj_file] then
-    logger.info("neotest-vstest: Reusing existing (vstest) client for: " .. vim.inspect(project))
-    return clients[project.proj_file]
-  end
-
   logger.info("neotest-vstest: Creating new (vstest) client for: " .. vim.inspect(project))
   local client = {
     project = project,
     test_cases = {},
     last_discovered = 0,
-    semaphore = nio.control.semaphore(1),
     test_runner = cli_wrapper.create_test_runner(project),
   }
   setmetatable(client, self)
 
-  clients[project.proj_file] = client
-
   return client
 end
 
-function Client:discover_tests(path)
-  self.semaphore.acquire()
-
-  local last_modified
-  if path then
-    last_modified = files.get_path_last_modified(path)
-  else
-    last_modified = dotnet_utils.get_project_last_modified(self.project)
-  end
-  if last_modified and last_modified > self.last_discovered then
-    logger.debug(
-      "neotest-vstest: Discovering tests: "
-        .. " last modified at "
-        .. last_modified
-        .. " last discovered at "
-        .. self.last_discovered
-    )
-    dotnet_utils.build_project(self.project)
-    last_modified = dotnet_utils.get_project_last_modified(self.project)
-    self.last_discovered = last_modified or 0
-    self.test_cases = vstest_client.discover_tests_in_project(
-      self.test_runner.execute,
-      self.project
-    ) or {}
-  end
-
-  self.semaphore.release()
+function Client:discover_tests()
+  self.test_cases = vstest_client.discover_tests_in_project(self.test_runner.execute, self.project)
+    or {}
 
   return self.test_cases
-end
-
-function Client:discover_tests_for_path(path)
-  self:discover_tests(path)
-  path = vim.fs.normalize(path)
-  return self.test_cases[path]
 end
 
 ---@async
