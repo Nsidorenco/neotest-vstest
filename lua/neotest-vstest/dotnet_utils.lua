@@ -298,6 +298,7 @@ function dotnet_utils.get_solution_projects(solution_path)
   end
 
   local test_projects = nio.gather(_test_projects)
+  print(string.format("test projects: %s", vim.inspect(test_projects)))
 
   logger.info("found test projects in " .. solution_dir)
   logger.info(test_projects)

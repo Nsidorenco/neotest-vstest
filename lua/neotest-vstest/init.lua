@@ -323,9 +323,11 @@ function DotnetNeotestAdapter.discover_positions(path)
   logger.info(string.format("neotest-vstest: scanning %s for tests...", path))
 
   local project = dotnet_utils.get_proj_info(path)
+  print(string.format("neotest-vstest: project is %s", vim.inspect(project)))
   local client = client_discovery.get_client_for_project(project, solution)
 
   if not client then
+    print(string.format("neotest-vstest: no client found for project %s", vim.inspect(project)))
     logger.debug(
       "neotest-vstest: not discovering tests due to no client for file: " .. vim.inspect(path)
     )
@@ -333,6 +335,7 @@ function DotnetNeotestAdapter.discover_positions(path)
   end
 
   if project and (vim.endswith(path, ".csproj") or vim.endswith(path, ".fsproj")) then
+    print(string.format("neotest-vstest: getting top_level_tests is %s", vim.inspect(project)))
     return get_top_level_tests(project)
   end
 
@@ -341,6 +344,7 @@ function DotnetNeotestAdapter.discover_positions(path)
   local tests_in_file = client:discover_tests_for_path(path)
 
   if not tests_in_file or next(tests_in_file) == nil then
+    print(string.format("neotest-vstest: no tests found in file %s", path))
     logger.debug(string.format("neotest-vstest: no tests found for file %s", path))
     return
   end
