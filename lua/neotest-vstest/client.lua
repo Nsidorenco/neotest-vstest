@@ -10,7 +10,7 @@ local files = require("neotest-vstest.files")
 --- @field discover_tests_for_path fun(self: neotest-vstest.Client, path: string): table<string, table<string, neotest-vstest.TestCase>>
 --- @field private sub_client neotest-vstest.Client
 --- @field private semaphore nio.control.Semaphore
---- @field private had_first_discovery boolean
+--- @field private last_discovered integer
 local TestClient = {}
 TestClient.__index = TestClient
 
