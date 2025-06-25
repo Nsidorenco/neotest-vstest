@@ -209,7 +209,7 @@ function dotnet_utils.get_proj_info(path)
 
   ---@class DotnetProjectInfo
   local proj_data = {
-    proj_file = vim.fs.normalize(proj_file),
+    proj_file = proj_file,
     dll_file = properties.TargetPath,
     proj_dir = properties.MSBuildProjectDirectory,
     is_test_project = properties.IsTestProject == "true",
