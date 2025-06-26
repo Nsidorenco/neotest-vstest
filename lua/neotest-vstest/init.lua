@@ -48,9 +48,15 @@ local function create_adapter(config)
 
     local first_solution = lib.files.match_root_pattern("*.sln", "*.slnx")(path)
 
-    local solutions = vim.fs.find(function(name, _)
-      return name:match("%.slnx?$")
-    end, { upward = false, type = "file", path = first_solution, limit = math.huge })
+    local solutions = vim
+      .iter(vim.fs.find(function(name, _)
+        return name:match("%.slnx?$")
+      end, { upward = false, type = "file", path = first_solution, limit = math.huge }))
+      :map(function(name)
+        local solution_path, _ = string.gsub(name, "/", lib.files.sep)
+        return solution_path
+      end)
+      :totable()
 
     logger.info(string.format("neotest-vstest: scanning %s for solution file...", first_solution))
     logger.info(solutions)
