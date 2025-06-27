@@ -38,14 +38,6 @@ local function create_adapter(config)
       return solution_dir
     end
 
-    if vim.g.roslyn_nvim_selected_solution then
-      solution = vim.g.roslyn_nvim_selected_solution
-      solution_dir = vim.fs.dirname(solution)
-      solution_projects = dotnet_utils.projects(solution)
-      logger.info(string.format("neotest-vstest: using solution from roslyn.nvim %s", solution))
-      return solution_dir
-    end
-
     local first_solution = lib.files.match_root_pattern("*.sln", "*.slnx")(path)
 
     local solutions = vim.fs.find(function(name, _)
@@ -57,12 +49,16 @@ local function create_adapter(config)
 
     solution = config.solution_selector and config.solution_selector(solutions) or nil
 
+    if not solution and vim.g.roslyn_nvim_selected_solution then
+      solution = vim.g.roslyn_nvim_selected_solution
+      logger.info(string.format("neotest-vstest: using solution from roslyn.nvim %s", solution))
+    end
+
     if solution or #solutions > 0 then
       local solution_dir_future = nio.control.future()
 
       if solution then
         solution_dir = vim.fs.dirname(solution)
-        solution_projects = dotnet_utils.projects(solution)
         solution_dir_future.set(solution_dir)
       else
         if #solutions == 1 then
