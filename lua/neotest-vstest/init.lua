@@ -43,7 +43,7 @@ local function create_adapter(config)
     local solutions = vim
       .iter(vim.fs.find(function(name, _)
         return name:match("%.slnx?$")
-      end, { upward = false, type = "file", path = first_solution, limit = math.huge }))
+      end, { upward = false, type = "file", path = first_solution or path, limit = math.huge }))
       :map(function(name)
         local solution_path, _ = string.gsub(name, "/", lib.files.sep)
         return solution_path
