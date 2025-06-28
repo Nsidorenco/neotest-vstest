@@ -97,7 +97,7 @@ function client_discovery.get_client_for_project(project, solution)
 
   -- Check if the project is part of a solution.
   -- If not then do not create a client.
-  local solution_projects = solution and dotnet_utils.get_solution_projects(solution)
+  local solution_projects = solution and dotnet_utils.get_solution_info(solution)
   if solution_projects and #solution_projects.projects > 0 then
     local exists_in_solution = vim.iter(solution_projects.projects):any(function(solution_project)
       return solution_project == project
