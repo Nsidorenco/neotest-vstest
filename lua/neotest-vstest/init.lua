@@ -294,7 +294,7 @@ local function create_adapter(config)
 
     local tests_in_file = (client and client:discover_tests()) or {}
     local tests_in_project = tests_in_file[project.proj_file]
-    logger.debug(string.format("neotest-vstest: top-level tests in file: %s", project.dll_file))
+    logger.debug(string.format("neotest-vstest: top-level tests in file: %s", project.proj_file))
 
     if not tests_in_project or next(tests_in_project) == nil then
       return
