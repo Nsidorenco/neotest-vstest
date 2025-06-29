@@ -21,7 +21,6 @@ local function create_adapter(config)
 
   local solution
   local solution_dir
-  local solution_projects
 
   ---@package
   ---@type neotest.Adapter
@@ -96,8 +95,8 @@ local function create_adapter(config)
 
         if solution_dir_future.wait() and solution then
           logger.info(string.format("neotest-vstest: found solution file %s", solution))
-          solution_projects = dotnet_utils.projects(solution)
           dotnet_utils.build_path(solution)
+          dotnet_utils.get_solution_info(solution)
           return solution_dir
         end
       end
@@ -133,6 +132,8 @@ local function create_adapter(config)
   end
 
   function DotnetNeotestAdapter.filter_dir(name, rel_path, root)
+    local dotnet_utils = require("neotest-vstest.dotnet_utils")
+
     if name == "bin" or name == "obj" then
       return false
     end
@@ -149,11 +150,13 @@ local function create_adapter(config)
       return true
     end
 
-    local found = vim.iter(solution_projects or {}):any(function(project)
-      return vim.fs.dirname(project) == project_dir
+    local solution_info = dotnet_utils.get_solution_info(solution)
+
+    local found = vim.iter(solution_info and solution_info.projects or {}):any(function(project)
+      return vim.fs.normalize(project.proj_dir) == vim.fs.normalize(project_dir)
     end)
 
-    if solution_projects and not found then
+    if solution_info and not found then
       return false
     end
 
