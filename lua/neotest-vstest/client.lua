@@ -84,7 +84,7 @@ local clients = {}
 
 ---@param project DotnetProjectInfo?
 ---@param solution string? path to the solution file
----@return neotest-vstest.Client?
+---@return neotest-vstest.wrapper-client?
 function client_discovery.get_client_for_project(project, solution)
   if not project then
     logger.debug("neotest-vstest: No project provided, returning nil client.")
@@ -119,7 +119,7 @@ function client_discovery.get_client_for_project(project, solution)
     )
   end
 
-  ---@type neotest-vstest.Client
+  ---@type neotest-vstest.wrapper-client
   local client
 
   -- Project is part of a solution or standalone, create a client.
