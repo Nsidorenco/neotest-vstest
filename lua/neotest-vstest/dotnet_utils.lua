@@ -326,9 +326,8 @@ function dotnet_utils.get_solution_info(solution_path)
   solution_discovery_semaphore.acquire()
 
   if cached_solution then
-    local updated_solution_info
-    get_updated_solution_info(cached_solution)
-    solution_cache[normalized_path] = updated_solution_info or cached_solution
+    local updated_solution_info = get_updated_solution_info(cached_solution)
+    solution_cache[normalized_path] = updated_solution_info
     solution_discovery_semaphore.release()
     return updated_solution_info
   end
