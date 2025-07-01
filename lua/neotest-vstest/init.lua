@@ -39,20 +39,14 @@ local function create_adapter(config)
 
     local first_solution = lib.files.match_root_pattern("*.sln", "*.slnx")(path)
 
-    local solutions = vim
-      .iter(vim.fs.find(function(name, _)
-        return name:match("%.slnx?$")
-      end, {
-        upward = false,
-        type = "file",
-        path = first_solution or path,
-        limit = math.huge,
-      }))
-      :map(function(name)
-        local solution_path, _ = string.gsub(name, "/", lib.files.sep)
-        return solution_path
-      end)
-      :totable()
+    local solutions = vim.fs.find(function(name, _)
+      return name:match("%.slnx?$")
+    end, {
+      upward = false,
+      type = "file",
+      path = first_solution or path,
+      limit = math.huge,
+    })
 
     logger.info(string.format("neotest-vstest: scanning %s for solution file...", first_solution))
     logger.info(solutions)
@@ -92,13 +86,14 @@ local function create_adapter(config)
             end)
           end)
         end
+      end
 
-        if solution_dir_future.wait() and solution then
-          logger.info(string.format("neotest-vstest: found solution file %s", solution))
-          dotnet_utils.build_path(solution)
-          dotnet_utils.get_solution_info(solution)
-          return solution_dir
-        end
+      if solution_dir_future.wait() and solution then
+        dotnet_utils.build_path(solution)
+        dotnet_utils.get_solution_info(solution)
+        solution = string.gsub(solution, "/", lib.files.sep)
+        logger.info(string.format("neotest-vstest: found solution file %s", solution))
+        return solution_dir
       end
     end
 
