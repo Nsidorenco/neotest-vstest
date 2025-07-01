@@ -321,30 +321,18 @@ local solution_discovery_semaphore = nio.control.semaphore(1)
 ---@return DotnetSolutionInfo?
 function dotnet_utils.get_solution_info(solution_path)
   local normalized_path = vim.fs.normalize(solution_path)
-  local cached_solution = normalized_path and solution_cache[normalized_path]
+  local cached_solution = (normalized_path and solution_cache[normalized_path])
+    or {
+      solution_file = solution_path,
+      last_updated = 0,
+    }
 
   solution_discovery_semaphore.acquire()
 
-  if cached_solution then
-    local updated_solution_info = get_updated_solution_info(cached_solution)
-    solution_cache[normalized_path] = updated_solution_info
-    solution_discovery_semaphore.release()
-    return updated_solution_info
-  end
-
-  local last_modified = files.get_path_last_modified(normalized_path)
-
-  local projects = get_solution_projects(solution_path)
-  local solution_info = projects
-      and {
-        solution_file = solution_path,
-        projects = projects,
-        last_updated = last_modified or 0,
-      }
-    or nil
-  solution_cache[normalized_path] = solution_info
+  local updated_solution_info = get_updated_solution_info(cached_solution)
+  solution_cache[normalized_path] = updated_solution_info
   solution_discovery_semaphore.release()
-  return solution_info
+  return updated_solution_info
 end
 
 ---return the unix timestamp of when the project dll file was last modified
