@@ -359,15 +359,21 @@ function dotnet_utils.get_project_last_modified(project)
   return files.get_path_last_modified(project.dll_file)
 end
 
+local build_semaphore = nio.control.semaphore(1)
+
 ---@async
 ---@param path string
 ---@return boolean success if build was successful
 function dotnet_utils.build_path(path)
+  build_semaphore.acquire()
+
   logger.debug("neotest-vstest: building path " .. path)
   local exitCode, out = lib.process.run(
     { "dotnet", "build", path },
     { stdout = true, stderr = true }
   )
+
+  build_semaphore.release()
 
   if exitCode ~= 0 then
     nio.scheduler()
