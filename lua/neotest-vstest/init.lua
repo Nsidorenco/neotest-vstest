@@ -127,6 +127,7 @@ local function create_adapter(config)
 
   function DotnetNeotestAdapter.filter_dir(name, rel_path, root)
     local dotnet_utils = require("neotest-vstest.dotnet_utils")
+    local logger = require("neotest.logging")
 
     if name == "bin" or name == "obj" then
       return false
@@ -134,9 +135,24 @@ local function create_adapter(config)
 
     -- Filter out directories that are not part of the solution (if there is a solution)
     local fullpath = vim.fs.joinpath(root, rel_path)
-    local project_dir = vim.fs.root(fullpath, function(path, _)
-      return path:match("%.[cf]sproj$")
-    end)
+    local dirs = {}
+    for dir in vim.fs.parents(fullpath) do
+      dirs[#dirs + 1] = dir
+      if vim.fs.normalize(dir) == vim.fs.normalize(root) then
+        break
+      end
+    end
+
+    local project_dir
+
+    for _, dir in ipairs(dirs) do
+      for filename in vim.fs.dir(dir) do
+        if filename:match("%.[cf]sproj$") then
+          project_dir = dir
+          return true
+        end
+      end
+    end
 
     -- We cannot determine if the file is a test file without a project directory.
     -- Keep searching the child by not filtering it out
