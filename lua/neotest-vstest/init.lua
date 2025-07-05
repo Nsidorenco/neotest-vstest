@@ -127,30 +127,28 @@ local function create_adapter(config)
 
   function DotnetNeotestAdapter.filter_dir(name, rel_path, root)
     local dotnet_utils = require("neotest-vstest.dotnet_utils")
-    local logger = require("neotest.logging")
 
     if name == "bin" or name == "obj" then
       return false
     end
 
-    -- Filter out directories that are not part of the solution (if there is a solution)
-    local fullpath = vim.fs.joinpath(root, rel_path)
-    local dirs = {}
-    for dir in vim.fs.parents(fullpath) do
-      dirs[#dirs + 1] = dir
-      if vim.fs.normalize(dir) == vim.fs.normalize(root) then
-        break
-      end
-    end
-
     local project_dir
 
-    for _, dir in ipairs(dirs) do
+    -- Filter out directories that are not part of the solution (if there is a solution)
+    local fullpath = vim.fs.joinpath(root, rel_path)
+    for dir in vim.fs.parents(fullpath) do
+      if solution_dir then
+        break
+      end
+
       for filename in vim.fs.dir(dir) do
         if filename:match("%.[cf]sproj$") then
           project_dir = dir
-          return true
+          break
         end
+      end
+      if vim.fs.normalize(dir) == vim.fs.normalize(root) then
+        break
       end
     end
 
