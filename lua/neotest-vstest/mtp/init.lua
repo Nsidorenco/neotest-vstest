@@ -54,6 +54,12 @@ function Client:discover_tests()
   return self.test_cases
 end
 
+local function sanitize_node(node)
+  node["display-name"] = node["display-name"]
+    and string.gsub(node["display-name"], "·", "\\u{00B7}")
+  return node
+end
+
 ---@async
 ---@param ids string[] list of test ids to run
 ---@return neotest-vstest.Client.RunResult
@@ -61,7 +67,7 @@ function Client:run_tests(ids)
   local nodes = {}
   for _, node in ipairs(self.test_nodes) do
     if vim.tbl_contains(ids, node.uid) then
-      nodes[#nodes + 1] = node
+      nodes[#nodes + 1] = sanitize_node(node)
     end
   end
   return mtp_client.run_tests(self.project.dll_file, nodes)
@@ -74,7 +80,7 @@ function Client:debug_tests(ids)
   local nodes = {}
   for _, node in ipairs(self.test_nodes) do
     if vim.tbl_contains(ids, node.uid) then
-      nodes[#nodes + 1] = node
+      nodes[#nodes + 1] = sanitize_node(node)
     end
   end
   return mtp_client.debug_tests(self.project.dll_file, nodes)
