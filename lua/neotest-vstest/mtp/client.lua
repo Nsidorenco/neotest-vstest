@@ -8,7 +8,7 @@ local M = {}
 ---@async
 ---@param dll_path string path to test project dll file
 ---@param mtp_env? table<string, string> environment variables for the mtp server
----@return nio.control.Future<uv.uv_tcp_t> server_future, integer mtp_process_pid
+---@return nio.control.Future<uv.uv_tcp_t> server_future, vim.SystemObj mtp_process
 local function start_server(dll_path, mtp_env)
   local server, server_err = vim.uv.new_tcp()
   assert(server, server_err)
@@ -33,7 +33,7 @@ local function start_server(dll_path, mtp_env)
       logger.debug("neotest-vstest: Accepted connection from mtp")
       mtp_client = client
       client:read_start(function(err, data)
-        assert(not err, err)
+        -- assert(not err, err)
         if data then
           logger.trace("neotest-vstest: Received data from mtp with pid: " .. data)
           lsp_client:write(data)
@@ -76,7 +76,7 @@ local function start_server(dll_path, mtp_env)
 
   logger.debug("neotest-vstest: MTP process started with PID: " .. process.pid)
 
-  return server_future, process.pid
+  return server_future, process
 end
 
 local random = math.random
@@ -95,7 +95,7 @@ end
 ---@param mtp_env? table<string, string> environment variables for the mtp server
 ---@return nio.control.Future<vim.lsp.Client> client_future, integer mtp_process_pid
 function M.create_client(dll_path, on_update, on_log, mtp_env)
-  local server_future, mtp_process_pid = start_server(dll_path, mtp_env)
+  local server_future, mtp_process = start_server(dll_path, mtp_env)
   local client_future = nio.control.future()
 
   nio.run(function()
@@ -105,7 +105,9 @@ function M.create_client(dll_path, on_update, on_log, mtp_env)
       cmd = vim.lsp.rpc.connect(server:getsockname().ip, server:getsockname().port),
       root_dir = vim.fs.dirname(dll_path),
       on_exit = function()
+        logger.debug("neotest-vstest: MTP process shutdown triggered from client with PID: " .. mtp_process.pid)
         server:shutdown()
+        mtp_process:kill(9)
       end,
       before_init = function(params)
         params.processId = vim.fn.getpid()
@@ -201,9 +203,9 @@ local function parseTestResult(test)
   return {
     status = outcome,
     short = test.node["standardOutput"]
-      or test.node["error.message"]
-      or test.node["execution-state"]
-      or default_short_message,
+        or test.node["error.message"]
+        or test.node["execution-state"]
+        or default_short_message,
     errors = errors,
   }
 end
