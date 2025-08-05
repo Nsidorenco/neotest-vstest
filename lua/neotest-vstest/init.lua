@@ -136,19 +136,21 @@ local function create_adapter(config)
 
     -- Filter out directories that are not part of the solution (if there is a solution)
     local fullpath = vim.fs.joinpath(root, rel_path)
-    for dir in vim.fs.parents(fullpath) do
-      if solution_dir then
-        break
-      end
-
-      for filename in vim.fs.dir(dir) do
-        if filename:match("%.[cf]sproj$") then
-          project_dir = dir
+    if solution_dir then
+      project_dir = vim.fs.root(fullpath, function(path, _)
+        return path:match("%.[cf]sproj$")
+      end)
+    else
+      for dir in vim.fs.parents(fullpath) do
+        for filename in vim.fs.dir(dir) do
+          if filename:match("%.[cf]sproj$") then
+            project_dir = dir
+            break
+          end
+        end
+        if vim.fs.normalize(dir) == vim.fs.normalize(root) then
           break
         end
-      end
-      if vim.fs.normalize(dir) == vim.fs.normalize(root) then
-        break
       end
     end
 
