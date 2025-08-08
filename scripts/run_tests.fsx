@@ -62,7 +62,8 @@ module TestDiscovery =
             {| StreamPath = args[0]
                OutputPath = args[1]
                ProcessOutput = args[2]
-               Ids = args[3..] |> Array.map Guid.Parse |}
+               OutputDirPath = args[3]
+               Ids = args[4..] |> Array.map Guid.Parse |}
             |> ValueOption.Some
         else
             ValueOption.None
@@ -77,7 +78,8 @@ module TestDiscovery =
                StreamPath = args[2]
                OutputPath = args[3]
                ProcessOutput = args[4]
-               Ids = args[5..] |> Array.map Guid.Parse |}
+               OutputDirPath = args[5]
+               Ids = args[6..] |> Array.map Guid.Parse |}
             |> ValueOption.Some
         else
             ValueOption.None
@@ -139,7 +141,7 @@ module TestDiscovery =
 
             member __.HandleRawMessage(_) = ()
 
-    type PlaygroundTestRunHandler(streamOutputPath, outputFilePath, processOutputPath) =
+    type PlaygroundTestRunHandler(streamOutputPath, outputFilePath, processOutputPath, outputDirPath) =
         let resultsDictionary = ConcurrentDictionary()
         let processOutputWriter = new StreamWriter(processOutputPath, append = true)
 
@@ -194,7 +196,7 @@ module TestDiscovery =
                         let neoTestResult =
                             { status = outcome
                               short = $"{result.TestCase.DisplayName}:{outcome}"
-                              output = Path.GetTempPath() + Guid.NewGuid().ToString()
+                              output = Path.Join(outputDirPath, Guid.NewGuid().ToString())
                               errors = errors }
 
                         File.WriteAllText(neoTestResult.output, result.ToString())
@@ -302,7 +304,7 @@ module TestDiscovery =
                     let testCases = getTestCases args.Ids
 
                     use testHandler =
-                        new PlaygroundTestRunHandler(args.StreamPath, args.OutputPath, args.ProcessOutput)
+                        new PlaygroundTestRunHandler(args.StreamPath, args.OutputPath, args.ProcessOutput, args.OutputDirPath)
                     // spawn as task to allow running concurrent tests
                     do! r.RunTestsAsync(testCases, sourceSettings, testHandler)
                     Console.WriteLine($"Done running tests for ids: ")
@@ -318,7 +320,7 @@ module TestDiscovery =
                     let testCases = getTestCases args.Ids
 
                     use testHandler =
-                        new PlaygroundTestRunHandler(args.StreamPath, args.OutputPath, args.ProcessOutput)
+                        new PlaygroundTestRunHandler(args.StreamPath, args.OutputPath, args.ProcessOutput, args.OutputDirPath)
 
                     let debugLauncher = DebugLauncher(args.PidPath, args.AttachedPath)
                     Console.WriteLine($"Starting {Seq.length testCases} tests in debug-mode")

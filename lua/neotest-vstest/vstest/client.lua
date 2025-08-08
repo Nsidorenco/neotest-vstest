@@ -94,12 +94,17 @@ function M.run_tests(runner, ids)
   local result_stream_path = nio.fn.tempname()
   lib.files.write(result_stream_path, "")
 
+  local output_dir_path = nio.fn.tempname()
+  local mkdir_err, _ = nio.uv.fs_mkdir(output_dir_path, 493) -- tonumber('755', 8)
+  assert(not mkdir_err, mkdir_err)
+
   local command = vim
     .iter({
       "run-tests",
       result_stream_path,
       result_path,
       process_output_path,
+      output_dir_path,
       ids,
     })
     :flatten()
@@ -130,6 +135,10 @@ function M.debug_tests(runner, ids)
   local result_stream_path = nio.fn.tempname()
   lib.files.write(result_stream_path, "")
 
+  local output_dir_path = nio.fn.tempname()
+  local mkdir_err, _ = nio.uv.fs_mkdir(output_dir_path, 493) -- tonumber('755', 8)
+  assert(not mkdir_err, mkdir_err)
+
   local pid_path = nio.fn.tempname()
 
   local command = vim
@@ -140,6 +149,7 @@ function M.debug_tests(runner, ids)
       result_stream_path,
       result_path,
       process_output_path,
+      output_dir_path,
       ids,
     })
     :flatten()
