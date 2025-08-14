@@ -111,7 +111,7 @@ function M.create_test_runner(project)
       process:write(content .. "\n")
     end,
     stop = function()
-      process:kill(0)
+      process:kill(9)
     end,
   }
 end
