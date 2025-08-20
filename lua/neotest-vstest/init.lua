@@ -102,27 +102,28 @@ local function create_adapter(config)
 
   function DotnetNeotestAdapter.is_test_file(file_path)
     local logger = require("neotest.logging")
-    local dotnet_utils = require("neotest-vstest.dotnet_utils")
-    local client_discovery = require("neotest-vstest.client")
+    local lib = require("neotest.lib")
 
     local isDotnetFile = (vim.endswith(file_path, ".csproj") or vim.endswith(file_path, ".fsproj"))
-      or (vim.endswith(file_path, ".cs") or vim.endswith(file_path, ".fs"))
+        or (vim.endswith(file_path, ".cs") or vim.endswith(file_path, ".fs"))
 
     if not isDotnetFile then
       return false
     end
 
-    local project = dotnet_utils.get_proj_info(file_path)
-    local client = client_discovery.get_client_for_project(project, solution)
+    local file_content = lib.files.read(file_path)
 
-    if not client then
-      logger.debug(
-        "neotest-vstest: marking file as non-test file since no client was found: " .. file_path
-      )
-      return false
+    -- Check for common test attributes or patterns in the file content
+    local test_patterns = { "%[%Test%]", "%[%Fact%]", "%[Theory%]" }
+    for _, pattern in ipairs(test_patterns) do
+      if file_content:match(pattern) then
+        logger.debug("neotest-vstest: marking file as test file due to matched test pattern: " .. file_path)
+        return true
+      end
     end
 
-    return true
+    logger.debug("neotest-vstest: marking file as non-test file due to no test patterns: " .. file_path)
+    return false
   end
 
   function DotnetNeotestAdapter.filter_dir(name, rel_path, root)
