@@ -403,7 +403,7 @@ local function create_adapter(config)
       local lang_tree =
         vim.treesitter.get_string_parser(content, filetype, { injections = { [filetype] = "" } })
 
-      local root = lib.treesitter.fast_parse(lang_tree):root()
+      local root = lang_tree:parse(false)[1]:root()
 
       local query = lib.treesitter.normalise_query(
         filetype,
