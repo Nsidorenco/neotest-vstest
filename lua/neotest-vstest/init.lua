@@ -105,6 +105,8 @@ local function create_adapter(config)
     local dotnet_utils = require("neotest-vstest.dotnet_utils")
     local client_discovery = require("neotest-vstest.client")
 
+    logger.trace("neotest-vstest: checking if file is test file: " .. file_path)
+
     local isDotnetFile = (vim.endswith(file_path, ".csproj") or vim.endswith(file_path, ".fsproj"))
       or (vim.endswith(file_path, ".cs") or vim.endswith(file_path, ".fs"))
 
@@ -127,50 +129,42 @@ local function create_adapter(config)
 
   function DotnetNeotestAdapter.filter_dir(name, rel_path, root)
     local dotnet_utils = require("neotest-vstest.dotnet_utils")
+    local logger = require("neotest.logging")
+    logger.trace("neotest-vstest: filtering dir", name, rel_path, root)
 
     if name == "bin" or name == "obj" then
       return false
     end
 
-    local project_dir
-
     -- Filter out directories that are not part of the solution (if there is a solution)
     local fullpath = vim.fs.joinpath(root, rel_path)
     if solution_dir then
-      project_dir = vim.fs.root(fullpath, function(path, _)
+      local solution_info = dotnet_utils.get_solution_info(solution)
+      local project_files = vim.fs.find(function(path, _)
         return path:match("%.[cf]sproj$")
-      end)
-    else
-      for dir in vim.fs.parents(fullpath) do
-        for filename in vim.fs.dir(dir) do
-          if filename:match("%.[cf]sproj$") then
-            project_dir = dir
-            break
-          end
-        end
-        if vim.fs.normalize(dir) == vim.fs.normalize(root) then
-          break
-        end
-      end
-    end
+      end, {
+        upward = false,
+        type = "file",
+        path = fullpath,
+        limit = math.huge,
+      })
 
-    -- We cannot determine if the file is a test file without a project directory.
-    -- Keep searching the child by not filtering it out
-    if not project_dir then
+      return vim
+        .iter(solution_info and solution_info.projects or {})
+        :map(function(proj)
+          return proj.proj_file
+        end)
+        :any(function(proj_file)
+          for _, file in ipairs(project_files) do
+            if vim.fs.normalize(proj_file) == vim.fs.normalize(file) then
+              return true
+            end
+          end
+          return false
+        end)
+    else
       return true
     end
-
-    local solution_info = dotnet_utils.get_solution_info(solution)
-
-    local found = vim.iter(solution_info and solution_info.projects or {}):any(function(project)
-      return vim.fs.normalize(project.proj_dir) == vim.fs.normalize(project_dir)
-    end)
-
-    if solution_info and not found then
-      return false
-    end
-
-    return true
   end
 
   local function get_match_type(captured_nodes)
