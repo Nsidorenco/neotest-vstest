@@ -143,28 +143,28 @@ local function create_adapter(config)
     local fullpath = vim.fs.joinpath(root, rel_path)
     if solution_dir then
       local solution_info = dotnet_utils.get_solution_info(solution)
-      local project_files = vim.fs.find(function(path, _)
-        return path:match("%.[cf]sproj$")
-      end, {
-        upward = false,
-        type = "file",
-        path = fullpath,
-        limit = math.huge,
-      })
 
-      return vim
+      local is_project_reachable = vim
         .iter(solution_info and solution_info.projects or {})
         :map(function(proj)
-          return proj.proj_file
+          return vim.fs.dirname(proj.proj_file)
         end)
-        :any(function(proj_file)
-          for _, file in ipairs(project_files) do
-            if vim.fs.normalize(proj_file) == vim.fs.normalize(file) then
-              return true
-            end
-          end
-          return false
+        :any(function(project_dir)
+          -- path should be a subdir of a solution project
+          -- or the solution project should be a subdir of the path
+          return vim.fs.relpath(project_dir, fullpath) ~= nil
+            or vim.fs.relpath(fullpath, project_dir) ~= nil
         end)
+      if not is_project_reachable then
+        logger.debug(
+          string.format(
+            "neotest-vstest: file '%s' is not a part of the solution '%s'",
+            rel_path,
+            solution_info.solution_file
+          )
+        )
+      end
+      return is_project_reachable
     else
       return true
     end
