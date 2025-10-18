@@ -110,8 +110,6 @@ module TestDiscovery =
                     discoveredTests.TryAdd(testCase.Id, testCase) |> ignore)
 
             member _.HandleDiscoveryComplete(_, _) =
-                use testsWriter = new StreamWriter(outputFile, append = false)
-
                 let testFiles =
                     discoveredTests.Values
                     |> Seq.map (fun test -> test.CodeFilePath)
@@ -120,17 +118,18 @@ module TestDiscovery =
 
                 Console.WriteLine($"Discovered tests for: {testFiles}")
 
-                discoveredTests.Values
-                |> Seq.sortBy (fun testCase -> testCase.CodeFilePath, testCase.LineNumber)
-                |> Seq.map (fun testCase ->
-                    { File = testCase.CodeFilePath
-                      Test =
-                        { Id = testCase.Id
-                          CodeFilePath = testCase.CodeFilePath
-                          DisplayName = testCase.DisplayName
-                          LineNumber = testCase.LineNumber
-                          FullyQualifiedName = testCase.FullyQualifiedName } })
-                |> Seq.iter (JsonConvert.SerializeObject >> testsWriter.WriteLine)
+                using (new StreamWriter(outputFile, append = false)) (fun testsWriter ->
+                    discoveredTests.Values
+                    |> Seq.sortBy (fun testCase -> testCase.CodeFilePath, testCase.LineNumber)
+                    |> Seq.map (fun testCase ->
+                        { File = testCase.CodeFilePath
+                          Test =
+                            { Id = testCase.Id
+                              CodeFilePath = testCase.CodeFilePath
+                              DisplayName = testCase.DisplayName
+                              LineNumber = testCase.LineNumber
+                              FullyQualifiedName = testCase.FullyQualifiedName } })
+                    |> Seq.iter (JsonConvert.SerializeObject >> testsWriter.WriteLine))
 
                 use waitFileWriter = new StreamWriter(waitFile, append = false)
                 waitFileWriter.WriteLine("1")
