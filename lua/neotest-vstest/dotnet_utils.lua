@@ -3,7 +3,17 @@ local lib = require("neotest.lib")
 local logger = require("neotest.logging")
 local files = require("neotest-vstest.files")
 
-local dotnet_utils = {}
+--- @class BuildOpts
+--- @field additional_args? string[]
+
+---@class DotnetUtils
+---@field private opts BuildOpts
+local dotnet_utils = { opts = {} }
+
+---@param opts BuildOpts
+function dotnet_utils.add_opts(opts)
+  dotnet_utils.opts = vim.tbl_extend("force", dotnet_utils.opts, opts)
+end
 
 ---parses output of running `dotnet --info`
 ---@param input string?
@@ -20,13 +30,17 @@ end
 ---@param proj_file string
 ---@return string? target_framework
 local function get_target_frameworks(proj_file)
-  local code, res = lib.process.run({
+  local msbuild_cmd = {
     "dotnet",
     "msbuild",
     proj_file,
     "-getProperty:TargetFramework",
     "-getProperty:TargetFrameworks",
-  }, {
+  }
+  for _, arg in ipairs(dotnet_utils.opts.additional_args or {}) do
+    table.insert(msbuild_cmd, arg)
+  end
+  local code, res = lib.process.run(msbuild_cmd, {
     stderr = true,
     stdout = true,
   })
@@ -168,7 +182,7 @@ function dotnet_utils.get_proj_info(path)
     return nil
   end
 
-  local command = {
+  local msbuild_cmd = {
     "dotnet",
     "msbuild",
     proj_file,
@@ -181,8 +195,11 @@ function dotnet_utils.get_proj_info(path)
     "-getProperty:DisableTestingPlatformServerCapability",
     "-property:TargetFramework=" .. target_framework,
   }
+  for _, arg in ipairs(dotnet_utils.opts.additional_args or {}) do
+    table.insert(msbuild_cmd, arg)
+  end
 
-  local _, res = lib.process.run(command, {
+  local _, res = lib.process.run(msbuild_cmd, {
     stderr = false,
     stdout = true,
   })
@@ -356,10 +373,11 @@ function dotnet_utils.build_path(path)
   build_semaphore.acquire()
 
   logger.debug("neotest-vstest: building path " .. path)
-  local exitCode, out = lib.process.run(
-    { "dotnet", "build", path },
-    { stdout = true, stderr = true }
-  )
+  local build_cmd = { "dotnet", "build", path }
+  for _, arg in ipairs(dotnet_utils.opts.additional_args or {}) do
+    table.insert(build_cmd, arg)
+  end
+  local exitCode, out = lib.process.run(build_cmd, { stdout = true, stderr = true })
 
   build_semaphore.release()
 

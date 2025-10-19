@@ -8,9 +8,9 @@
 </p>
 
 <p align="center">
-  <img 
-    width="923" 
-    alt="test discovery sample" 
+  <img
+    width="923"
+    alt="test discovery sample"
     src="https://github.com/user-attachments/assets/7e297d7a-f06d-44a9-adef-92131185e8ca" />
 </p>
 
@@ -79,6 +79,10 @@ require("neotest").setup({
       solution_selector = function(solutions)
         return nil -- return the solution you want to use or nil to let the adapter choose.
       end
+      build_opts = {
+          -- Arguments that will be added to all `dotnet build` and `dotnet msbuild` commands
+          additional_args = {}
+      }
     })
   }
 })
