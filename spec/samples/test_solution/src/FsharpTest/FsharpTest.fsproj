@@ -9,6 +9,7 @@
   </PropertyGroup>
 
   <ItemGroup>
+    <Compile Include="Subfolder/Subfolder2/Subfolder3/MoreTests.fs" />
     <Compile Include="Tests.fs" />
     <Compile Include="ManyTests.fs" />
     <Compile Include="TestsNUnit.fs" />
