@@ -111,7 +111,7 @@ function M.create_client(dll_path, on_update, on_log, mtp_env)
           "neotest-vstest: MTP process shutdown triggered from client with PID: " .. mtp_process.pid
         )
         server:shutdown()
-        mtp_process:kill(9)
+        mtp_process:kill(vim.uv.constants.SIGKILL)
       end,
       before_init = function(params)
         params.processId = vim.fn.getpid()
