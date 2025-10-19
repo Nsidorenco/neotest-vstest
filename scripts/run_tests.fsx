@@ -118,7 +118,9 @@ module TestDiscovery =
 
                 Console.WriteLine($"Discovered tests for: {testFiles}")
 
-                using (new StreamWriter(outputFile, append = false)) (fun testsWriter ->
+                do
+                    use testsWriter = new StreamWriter(outputFile, append = false)
+
                     discoveredTests.Values
                     |> Seq.sortBy (fun testCase -> testCase.CodeFilePath, testCase.LineNumber)
                     |> Seq.map (fun testCase ->
@@ -129,7 +131,7 @@ module TestDiscovery =
                               DisplayName = testCase.DisplayName
                               LineNumber = testCase.LineNumber
                               FullyQualifiedName = testCase.FullyQualifiedName } })
-                    |> Seq.iter (JsonConvert.SerializeObject >> testsWriter.WriteLine))
+                    |> Seq.iter (JsonConvert.SerializeObject >> testsWriter.WriteLine)
 
                 use waitFileWriter = new StreamWriter(waitFile, append = false)
                 waitFileWriter.WriteLine("1")
@@ -303,7 +305,12 @@ module TestDiscovery =
                     let testCases = getTestCases args.Ids
 
                     use testHandler =
-                        new PlaygroundTestRunHandler(args.StreamPath, args.OutputPath, args.ProcessOutput, args.OutputDirPath)
+                        new PlaygroundTestRunHandler(
+                            args.StreamPath,
+                            args.OutputPath,
+                            args.ProcessOutput,
+                            args.OutputDirPath
+                        )
                     // spawn as task to allow running concurrent tests
                     do! r.RunTestsAsync(testCases, sourceSettings, testHandler)
                     Console.WriteLine($"Done running tests for ids: ")
@@ -319,7 +326,12 @@ module TestDiscovery =
                     let testCases = getTestCases args.Ids
 
                     use testHandler =
-                        new PlaygroundTestRunHandler(args.StreamPath, args.OutputPath, args.ProcessOutput, args.OutputDirPath)
+                        new PlaygroundTestRunHandler(
+                            args.StreamPath,
+                            args.OutputPath,
+                            args.ProcessOutput,
+                            args.OutputDirPath
+                        )
 
                     let debugLauncher = DebugLauncher(args.PidPath, args.AttachedPath)
                     Console.WriteLine($"Starting {Seq.length testCases} tests in debug-mode")
