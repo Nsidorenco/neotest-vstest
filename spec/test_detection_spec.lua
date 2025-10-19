@@ -55,6 +55,31 @@ describe("Test test detection", function()
     assert.are_same(expected_tests, tests)
   end)
 
+  nio.tests.it("detect tests in subfolder of project", function()
+    local test_file = solution_path
+      .. "/src/FsharpTest/Subfolder/Subfolder2/Subfolder3/MoreTests.fs"
+    local positions = plugin.discover_positions(test_file)
+
+    assert.is_not_nil(positions, "Positions should not be nil")
+
+    local tests = {}
+
+    for _, position in positions:iter() do
+      if position.type == "test" then
+        tests[#tests + 1] = position.name
+      end
+    end
+
+    local expected_tests = {
+      "My test in subfolder",
+    }
+
+    table.sort(expected_tests)
+    table.sort(tests)
+
+    assert.are_same(expected_tests, tests)
+  end)
+
   nio.tests.it("detect tests in fsharp file with many test cases", function()
     local test_file = solution_path .. "/src/FsharpTest/ManyTests.fs"
     local positions = plugin.discover_positions(test_file)
@@ -105,8 +130,25 @@ describe("Test test detection", function()
     assert.is_truthy(plugin.filter_dir("CSharpTest", "/src/CSharpTest", solution_path))
   end)
 
+  nio.tests.it("not filter nested test directory", function()
+    assert.is_truthy(
+      plugin.filter_dir(
+        "Subfolder3",
+        "/src/FsharpTest/Subfolder/Subfolder2/Subfolder3",
+        solution_path
+      )
+    )
+  end)
+
   nio.tests.it("identify test file", function()
     local test_file = solution_path .. "/src/CSharpTest/UnitTest1.cs"
+
+    assert.is_truthy(plugin.is_test_file(test_file))
+  end)
+
+  nio.tests.it("identify test file in subfolder", function()
+    local test_file = solution_path
+      .. "/src/FsharpTest/Subfolder/Subfolder2/Subfolder3/MoreTests.fs"
 
     assert.is_truthy(plugin.is_test_file(test_file))
   end)
