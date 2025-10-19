@@ -1,12 +1,15 @@
 ---@class neotest-vstest.Config
 ---@field sdk_path? string path to dotnet sdk. Example: /usr/local/share/dotnet/sdk/9.0.101/
+---@field build_opts? BuildOpts
 ---@field dap_settings? dap.Configuration dap settings for debugging
 ---@field solution_selector? fun(solutions: string[]): string|nil
 
 ---@param config? neotest-vstest.Config
 ---@return neotest.Adapter
 local function create_adapter(config)
+  local dotnet_utils = require("neotest-vstest.dotnet_utils")
   config = config or {}
+  dotnet_utils.add_opts(config.build_opts or {})
 
   --- @type dap.Configuration
   local dap_settings = vim.tbl_extend("force", {
