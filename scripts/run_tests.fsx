@@ -110,8 +110,6 @@ module TestDiscovery =
                     discoveredTests.TryAdd(testCase.Id, testCase) |> ignore)
 
             member _.HandleDiscoveryComplete(_, _) =
-                use testsWriter = new StreamWriter(outputFile, append = false)
-
                 let testFiles =
                     discoveredTests.Values
                     |> Seq.map (fun test -> test.CodeFilePath)
@@ -120,17 +118,20 @@ module TestDiscovery =
 
                 Console.WriteLine($"Discovered tests for: {testFiles}")
 
-                discoveredTests.Values
-                |> Seq.sortBy (fun testCase -> testCase.CodeFilePath, testCase.LineNumber)
-                |> Seq.map (fun testCase ->
-                    { File = testCase.CodeFilePath
-                      Test =
-                        { Id = testCase.Id
-                          CodeFilePath = testCase.CodeFilePath
-                          DisplayName = testCase.DisplayName
-                          LineNumber = testCase.LineNumber
-                          FullyQualifiedName = testCase.FullyQualifiedName } })
-                |> Seq.iter (JsonConvert.SerializeObject >> testsWriter.WriteLine)
+                do
+                    use testsWriter = new StreamWriter(outputFile, append = false)
+
+                    discoveredTests.Values
+                    |> Seq.sortBy (fun testCase -> testCase.CodeFilePath, testCase.LineNumber)
+                    |> Seq.map (fun testCase ->
+                        { File = testCase.CodeFilePath
+                          Test =
+                            { Id = testCase.Id
+                              CodeFilePath = testCase.CodeFilePath
+                              DisplayName = testCase.DisplayName
+                              LineNumber = testCase.LineNumber
+                              FullyQualifiedName = testCase.FullyQualifiedName } })
+                    |> Seq.iter (JsonConvert.SerializeObject >> testsWriter.WriteLine)
 
                 use waitFileWriter = new StreamWriter(waitFile, append = false)
                 waitFileWriter.WriteLine("1")
@@ -304,7 +305,12 @@ module TestDiscovery =
                     let testCases = getTestCases args.Ids
 
                     use testHandler =
-                        new PlaygroundTestRunHandler(args.StreamPath, args.OutputPath, args.ProcessOutput, args.OutputDirPath)
+                        new PlaygroundTestRunHandler(
+                            args.StreamPath,
+                            args.OutputPath,
+                            args.ProcessOutput,
+                            args.OutputDirPath
+                        )
                     // spawn as task to allow running concurrent tests
                     do! r.RunTestsAsync(testCases, sourceSettings, testHandler)
                     Console.WriteLine($"Done running tests for ids: ")
@@ -320,7 +326,12 @@ module TestDiscovery =
                     let testCases = getTestCases args.Ids
 
                     use testHandler =
-                        new PlaygroundTestRunHandler(args.StreamPath, args.OutputPath, args.ProcessOutput, args.OutputDirPath)
+                        new PlaygroundTestRunHandler(
+                            args.StreamPath,
+                            args.OutputPath,
+                            args.ProcessOutput,
+                            args.OutputDirPath
+                        )
 
                     let debugLauncher = DebugLauncher(args.PidPath, args.AttachedPath)
                     Console.WriteLine($"Starting {Seq.length testCases} tests in debug-mode")
