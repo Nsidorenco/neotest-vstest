@@ -63,7 +63,8 @@ module TestDiscovery =
                OutputPath = args[1]
                ProcessOutput = args[2]
                OutputDirPath = args[3]
-               Ids = args[4..] |> Array.map Guid.Parse |}
+               RunSettings = args[4]
+               Ids = args[5..] |> Array.map Guid.Parse |}
             |> ValueOption.Some
         else
             ValueOption.None
@@ -79,7 +80,8 @@ module TestDiscovery =
                OutputPath = args[3]
                ProcessOutput = args[4]
                OutputDirPath = args[5]
-               Ids = args[6..] |> Array.map Guid.Parse |}
+               RunSettings = args[6]
+               Ids = args[7..] |> Array.map Guid.Parse |}
             |> ValueOption.Some
         else
             ValueOption.None
@@ -256,7 +258,7 @@ module TestDiscovery =
 
         let console = argv[0]
 
-        let sourceSettings =
+        let nullSettings =
             """
         <RunSettings>
         </RunSettings>
@@ -295,7 +297,7 @@ module TestDiscovery =
                         PlaygroundTestDiscoveryHandler(args.WaitFile, args.OutputPath) :> ITestDiscoveryEventsHandler2
 
                     Console.WriteLine($"Discovering tests for: {sourcesStr}")
-                    r.DiscoverTests(args.Sources, sourceSettings, options, testSession, discoveryHandler)
+                    r.DiscoverTests(args.Sources, nullSettings, options, testSession, discoveryHandler)
                     Console.WriteLine($"Discovering tests for: {sourcesStr}")
                 with e ->
                     Console.WriteLine($"failed to discovery tests for {sourcesStr}. Exception: {e}")
@@ -311,8 +313,15 @@ module TestDiscovery =
                             args.ProcessOutput,
                             args.OutputDirPath
                         )
+                    
+                    let settings = 
+                        if (args.RunSettings.CompareTo "nil" <> 0) then
+                            System.IO.File.ReadAllText(args.RunSettings)
+                        else
+                            nullSettings
+                    
                     // spawn as task to allow running concurrent tests
-                    do! r.RunTestsAsync(testCases, sourceSettings, testHandler)
+                    do! r.RunTestsAsync(testCases, settings, testHandler)
                     Console.WriteLine($"Done running tests for ids: ")
 
                     for id in args.Ids do
@@ -333,11 +342,17 @@ module TestDiscovery =
                             args.OutputDirPath
                         )
 
+                    let settings=
+                        if (args.RunSettings.CompareTo "nil" <> 0) then
+                            System.IO.File.ReadAllText(args.RunSettings)
+                        else
+                            nullSettings
+     
                     let debugLauncher = DebugLauncher(args.PidPath, args.AttachedPath)
                     Console.WriteLine($"Starting {Seq.length testCases} tests in debug-mode")
 
                     do! Task.Yield()
-                    r.RunTestsWithCustomTestHost(testCases, sourceSettings, testHandler, debugLauncher)
+                    r.RunTestsWithCustomTestHost(testCases, settings, testHandler, debugLauncher)
                 }
                 |> ignore
             | input ->

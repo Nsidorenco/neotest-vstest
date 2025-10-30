@@ -3,6 +3,8 @@
 ---@field build_opts? BuildOpts
 ---@field dap_settings? dap.Configuration dap settings for debugging
 ---@field solution_selector? fun(solutions: string[]): string|nil
+---@field settings_selector? fun(project_dir: string): string|nil function to find the .runsettings/testconfig.json in the project dir
+---@field timeout_ms? number milliseconds to wait before timing out connection with test runner
 
 ---@param config? neotest-vstest.Config
 ---@return neotest.Adapter
@@ -295,7 +297,7 @@ local function create_adapter(config)
     if not client then
       logger.debug(
         "neotest-vstest: not discovering top-level tests due to no client for project: "
-          .. vim.inspect(project)
+        .. vim.inspect(project)
       )
     end
 
@@ -342,15 +344,15 @@ local function create_adapter(config)
       position_id = function(position, parents)
         return position.id
           or vim
-            .iter({
-              position.path,
-              vim.tbl_map(function(pos)
-                return pos.name
-              end, parents),
-              position.name,
-            })
-            :flatten()
-            :join("::")
+          .iter({
+            position.path,
+            vim.tbl_map(function(pos)
+              return pos.name
+            end, parents),
+            position.name,
+          })
+          :flatten()
+          :join("::")
       end,
     }))
 
@@ -405,7 +407,7 @@ local function create_adapter(config)
       local query = lib.treesitter.normalise_query(
         filetype,
         filetype == "fsharp" and require("neotest-vstest.queries.fsharp")
-          or require("neotest-vstest.queries.c_sharp")
+        or require("neotest-vstest.queries.c_sharp")
       )
 
       local sep = lib.files.sep
@@ -457,15 +459,15 @@ local function create_adapter(config)
         position_id = function(position, parents)
           return position.id
             or vim
-              .iter({
-                position.path,
-                vim.tbl_map(function(pos)
-                  return pos.name
-                end, parents),
-                position.name,
-              })
-              :flatten()
-              :join("::")
+            .iter({
+              position.path,
+              vim.tbl_map(function(pos)
+                return pos.name
+              end, parents),
+              position.name,
+            })
+            :flatten()
+            :join("::")
         end,
       }))
 
@@ -559,6 +561,7 @@ local function create_adapter(config)
 
     return results
   end
+
   return DotnetNeotestAdapter
 end
 
@@ -567,6 +570,8 @@ local DotnetNeotestAdapter = create_adapter()
 ---@param opts neotest-vstest.Config
 local function apply_user_settings(_, opts)
   vim.g.neotest_vstest_sdk_path = opts and opts.sdk_path or nil
+  vim.g.neotest_vstest_find_settings = opts and opts.settings_selector or nil
+  vim.g.neotest_vstest_timeout_ms = opts and opts.timeout_ms or 5 * 30 * 1000
   return create_adapter(opts)
 end
 
