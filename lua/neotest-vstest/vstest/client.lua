@@ -58,7 +58,7 @@ end
 ---@param runner function
 ---@param project DotnetProjectInfo
 ---@return table?
-function M.discover_tests_in_project(runner, project)
+function M.discover_tests_in_project(runner, settings, project)
   local tests_in_files = {}
 
   local wait_file = nio.fn.tempname()
@@ -69,6 +69,7 @@ function M.discover_tests_in_project(runner, project)
       "discover",
       output_file,
       wait_file,
+      settings or "nil",
       { project.dll_file },
     })
     :flatten()

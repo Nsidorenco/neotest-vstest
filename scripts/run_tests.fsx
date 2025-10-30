@@ -49,7 +49,8 @@ module TestDiscovery =
 
             {| OutputPath = args[0]
                WaitFile = args[1]
-               Sources = args[2..] |}
+               RunSettings = args[2]
+               Sources = args[3..] |}
             |> ValueOption.Some
         else
             ValueOption.None
@@ -296,8 +297,14 @@ module TestDiscovery =
                     let discoveryHandler =
                         PlaygroundTestDiscoveryHandler(args.WaitFile, args.OutputPath) :> ITestDiscoveryEventsHandler2
 
+                    let settings = 
+                        if (args.RunSettings.CompareTo "nil" <> 0) then
+                            System.IO.File.ReadAllText(args.RunSettings)
+                        else
+                            nullSettings
+
                     Console.WriteLine($"Discovering tests for: {sourcesStr}")
-                    r.DiscoverTests(args.Sources, nullSettings, options, testSession, discoveryHandler)
+                    r.DiscoverTests(args.Sources, settings, options, testSession, discoveryHandler)
                     Console.WriteLine($"Discovering tests for: {sourcesStr}")
                 with e ->
                     Console.WriteLine($"failed to discovery tests for {sourcesStr}. Exception: {e}")

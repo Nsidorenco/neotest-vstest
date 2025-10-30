@@ -35,7 +35,7 @@ function Client:new(project)
 end
 
 function Client:discover_tests()
-  self.test_cases = vstest_client.discover_tests_in_project(self.test_runner.execute, self.project)
+  self.test_cases = vstest_client.discover_tests_in_project(self.test_runner.execute, self.settings, self.project)
     or {}
 
   return self.test_cases
