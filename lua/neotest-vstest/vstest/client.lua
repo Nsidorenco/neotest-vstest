@@ -5,10 +5,60 @@ local cli_wrapper = require("neotest-vstest.vstest.cli_wrapper")
 
 local M = {}
 
+---@param project_dir string
+---@return string? path to .runsettings file to use or nil
+function M.find_runsettings_for_project(project_dir)
+  local settings = vim.fs.find(function(name, _)
+    return name:match("%.runsettings$")
+  end, {
+    upward = false,
+    type = "file",
+    path = project_dir,
+    limit = math.huge,
+  })
+
+  for _, set in pairs(settings) do
+    logger.debug(string.format("neotest-vstest: Found .runsettings: %s", set))
+  end
+
+  local setting
+  if #settings > 0 then
+    local settings_future = nio.control.future()
+
+    if #settings == 1 then
+      setting = settings[1]
+      settings_future.set(setting)
+      logger.info(string.format("neotest-vstest: selected .runsetting file: %s", setting))
+    else
+      vim.schedule(function()
+        nio.run(function()
+          vim.ui.select(settings, {
+            prompt = "Multiple .runsettings exists. Select a .runsettings file: ",
+          }, function(selected)
+            if selected then
+              setting = selected
+              logger.info(string.format("neotest-vstest: selected .runsetting file: %s", setting))
+              settings_future.set(setting)
+            else
+              settings_future.set("nil")
+            end
+          end)
+        end)
+      end)
+    end
+
+    if settings_future.wait() and setting then
+      return setting
+    end
+  end
+  logger.info(string.format("neotest-vstest: Found no .runsettings files"))
+  return nil
+end
+
 ---@param runner function
 ---@param project DotnetProjectInfo
 ---@return table?
-function M.discover_tests_in_project(runner, project)
+function M.discover_tests_in_project(runner, settings, project)
   local tests_in_files = {}
 
   local wait_file = nio.fn.tempname()
@@ -19,6 +69,7 @@ function M.discover_tests_in_project(runner, project)
       "discover",
       output_file,
       wait_file,
+      settings or "nil",
       { project.dll_file },
     })
     :flatten()
@@ -85,7 +136,7 @@ end
 ---@param runner function
 ---@param ids string|string[]
 ---@return string process_output_path, string result_stream_file_path, string result_file_path
-function M.run_tests(runner, ids)
+function M.run_tests(runner, settings, ids)
   local process_output_path = nio.fn.tempname()
   lib.files.write(process_output_path, "")
 
@@ -105,6 +156,7 @@ function M.run_tests(runner, ids)
       result_path,
       process_output_path,
       output_dir_path,
+      settings or "nil",
       ids,
     })
     :flatten()
@@ -119,7 +171,7 @@ end
 ---@param runner function
 ---@param ids string|string[]
 ---@return string? pid, async fun() on_attach, string process_output_path, string result_stream_file_path, string result_file_path
-function M.debug_tests(runner, ids)
+function M.debug_tests(runner, settings, ids)
   local process_output_path = nio.fn.tempname()
   lib.files.write(process_output_path, "")
 
@@ -150,6 +202,7 @@ function M.debug_tests(runner, ids)
       result_path,
       process_output_path,
       output_dir_path,
+      settings or "nil",
       ids,
     })
     :flatten()

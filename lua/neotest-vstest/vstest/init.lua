@@ -7,6 +7,7 @@ local vstest_client = require("neotest-vstest.vstest.client")
 
 --- @class neotest-vstest.vstest-client: neotest-vstest.Client
 --- @field project DotnetProjectInfo
+--- @field settings string? path to .runsettings file or nil
 --- @field private test_runner { execute: function, stop: function }
 local Client = {}
 Client.__index = Client
@@ -19,11 +20,23 @@ end
 ---@param project DotnetProjectInfo
 function Client:new(project)
   logger.info("neotest-vstest: Creating new (vstest) client for: " .. vim.inspect(project))
+  local findSettings = function()
+    local settings = nil
+    if vim.g.neotest_vstest_find_settings then
+      settings = vim.g.neotest_vstest_find_settings(project.proj_dir)
+    end
+    if settings ~= nil then
+      return settings
+    else
+      return vstest_client.find_runsettings_for_project(project.proj_dir)
+    end
+  end
   local client = {
     project = project,
     test_cases = {},
     last_discovered = 0,
     test_runner = cli_wrapper.create_test_runner(project),
+    settings = findSettings(),
   }
   setmetatable(client, self)
 
@@ -31,8 +44,11 @@ function Client:new(project)
 end
 
 function Client:discover_tests()
-  self.test_cases = vstest_client.discover_tests_in_project(self.test_runner.execute, self.project)
-    or {}
+  self.test_cases = vstest_client.discover_tests_in_project(
+    self.test_runner.execute,
+    self.settings,
+    self.project
+  ) or {}
 
   return self.test_cases
 end
@@ -43,7 +59,7 @@ end
 function Client:run_tests(ids)
   local result_future = nio.control.future()
   local process_output_file, stream_file, result_file =
-    vstest_client.run_tests(self.test_runner.execute, ids)
+    vstest_client.run_tests(self.test_runner.execute, self.settings, ids)
 
   local result_stream_data, result_stop_stream = lib.files.stream_lines(stream_file)
   local output_stream_data, output_stop_stream = lib.files.stream_lines(process_output_file)
@@ -65,7 +81,7 @@ function Client:run_tests(ids)
   end
 
   nio.run(function()
-    cli_wrapper.spin_lock_wait_file(result_file, 5 * 30 * 1000)
+    cli_wrapper.spin_lock_wait_file(result_file, vim.g.neotest_vstest_timeout_ms)
     local parsed = {}
     local results = lib.files.read_lines(result_file)
     for _, line in ipairs(results) do
@@ -90,7 +106,7 @@ end
 function Client:debug_tests(ids)
   local result_future = nio.control.future()
   local pid, on_attach, process_output_file, stream_file, result_file =
-    vstest_client.debug_tests(self.test_runner.execute, ids)
+    vstest_client.debug_tests(self.test_runner.execute, self.settings, ids)
 
   local result_stream_data, result_stop_stream = lib.files.stream_lines(stream_file)
   local output_stream_data, output_stop_stream = lib.files.stream_lines(process_output_file)
@@ -112,8 +128,13 @@ function Client:debug_tests(ids)
   end
 
   nio.run(function()
-    cli_wrapper.spin_lock_wait_file(result_file, 5 * 30 * 1000)
     local parsed = {}
+    local file_exists =
+      cli_wrapper.spin_lock_wait_file(result_file, vim.g.neotest_vstest_timeout_ms)
+    assert(
+      file_exists,
+      "neotest-vstest: (possible timeout, check logs) result file does not exist: " .. result_file
+    )
     local results = lib.files.read_lines(result_file)
     for _, line in ipairs(results) do
       local success, result = pcall(vim.json.decode, line)
