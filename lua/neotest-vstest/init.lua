@@ -129,6 +129,18 @@ local function create_adapter(config)
       return false
     end
 
+    local tests_in_file = client:discover_tests_for_path(file_path)
+
+    if not tests_in_file or next(tests_in_file) == nil then
+      logger.debug(
+        string.format(
+          "neotest-vstest: marking file as non-test file since no tests was found in file %s",
+          file_path
+        )
+      )
+      return false
+    end
+
     return true
   end
 
