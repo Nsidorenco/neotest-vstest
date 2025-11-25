@@ -12,6 +12,10 @@ local function get_vstest_path()
       args = { "--info" },
     })
 
+    logger.debug(
+      "neotest-vstest: starting process to detect dotnet sdk path " .. tostring(process.pid)
+    )
+
     local default_sdk_path
     if vim.fn.has("win32") then
       default_sdk_path = "C:/Program Files/dotnet/sdk/"
@@ -104,6 +108,15 @@ function M.create_test_runner(project)
     logger.warn(obj.stderr)
   end)
 
+  nio.scheduler()
+  local cleanup_autocmd_id = vim.api.nvim_create_autocmd("QuitPre", {
+    group = vim.api.nvim_create_augroup("neotest_vstest_server_shutdown", { clear = false }),
+    desc = "Shutdown dotnet VSTest client process on Neovim exit",
+    callback = function()
+      process:kill(vim.uv.constants.SIGKILL)
+    end,
+  })
+
   logger.info(string.format("neotest-vstest: spawned vstest process with pid: %s", process.pid))
 
   return {
@@ -111,7 +124,8 @@ function M.create_test_runner(project)
       process:write(content .. "\n")
     end,
     stop = function()
-      process:kill(9)
+      process:kill(vim.uv.constants.SIGKILL)
+      vim.api.nvim_del_autocmd(cleanup_autocmd_id)
     end,
   }
 end
