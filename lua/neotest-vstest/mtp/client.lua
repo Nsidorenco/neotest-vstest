@@ -100,7 +100,7 @@ function M.create_client(dll_path, on_update, on_log, mtp_env)
   local server_future, mtp_process = start_server(dll_path, mtp_env)
 
   nio.scheduler()
-  local cleanup_autocmd_id = vim.api.nvim_create_autocmd("QuitPre", {
+  local cleanup_autocmd_id = vim.api.nvim_create_autocmd("VimLeavePre", {
     group = vim.api.nvim_create_augroup("neotest_vstest_mtp_shutdown", { clear = false }),
     desc = "Shutdown dotnet MTP client process on Neovim exit",
     callback = function()
