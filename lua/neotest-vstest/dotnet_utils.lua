@@ -210,7 +210,7 @@ function dotnet_utils.get_proj_info(path)
   logger.debug("neotest-vstest: msbuild properties for " .. proj_file .. ":")
   logger.debug(properties)
 
-  local is_mtp_disabled = properties.DisableTestingPlatformServerCapability == "true"
+  local is_mtp_disabled = string.lower(properties.DisableTestingPlatformServerCapability) == "true"
 
   ---@class DotnetProjectInfo
   local proj_data = {
@@ -219,8 +219,9 @@ function dotnet_utils.get_proj_info(path)
     dll_file = properties.TargetPath,
     proj_dir = properties.MSBuildProjectDirectory,
     last_discovered = files.get_path_last_modified(proj_file) or 0,
-    is_test_project = properties.IsTestProject == "true",
-    is_mtp_project = not is_mtp_disabled and properties.IsTestingPlatformApplication == "true",
+    is_test_project = string.lower(properties.IsTestProject) == "true",
+    is_mtp_project = not is_mtp_disabled
+      and string.lower(properties.IsTestingPlatformApplication) == "true",
   }
 
   setmetatable(proj_data, {
