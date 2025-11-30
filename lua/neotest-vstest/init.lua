@@ -584,16 +584,7 @@ local DotnetNeotestAdapter = create_adapter()
 
 ---@param opts neotest-vstest.Config
 local function apply_user_settings(_, opts)
-  if opts then
-    vim.g.neotest_vstest.sdk_path = opts.sdk_path or vim.g.neotest_vstest.sdk_path
-    vim.g.neotest_vstest.build_opts = opts.build_opts or vim.g.neotest_vstest.build_opts
-    vim.g.neotest_vstest.dap_settings = opts.dap_settings or vim.g.neotest_vstest.dap_settings
-    vim.g.neotest_vstest.solution_selector = opts.solution_selector
-      or vim.g.neotest_vstest.solution_selector
-    vim.g.neotest_vstest.find_settings = opts.settings_selector
-      or vim.g.neotest_vstest.find_settings
-    vim.g.neotest_vstest.timeout_ms = opts.timeout_ms or vim.g.neotest_vstest.timeout_ms
-  end
+  vim.g.neotest_vstest = vim.tbl_deep_extend("force", vim.g.neotest_vstest or {}, opts or {})
   return create_adapter(opts)
 end
 

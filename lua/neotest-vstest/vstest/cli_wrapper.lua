@@ -6,18 +6,10 @@ local dotnet_utils = require("neotest-vstest.dotnet_utils")
 local M = {}
 
 function M.get_vstest_path()
-  local path_to_search = vim.g.neotest_vstest.sdk_path
+  local path_to_search = vim.g.neotest_vstest and vim.g.neotest_vstest.sdk_path
 
   if not path_to_search then
-    local process = nio.process.run({
-      cmd = "dotnet",
-      args = { "--info" },
-    })
-
-    logger.debug(
-      "neotest-vstest: starting process to detect dotnet sdk path "
-        .. tostring(process and process.pid or 0)
-    )
+    local process = vim.system({ "dotnet", "--info" })
 
     local default_sdk_path
     if vim.fn.has("win32") then
@@ -26,35 +18,22 @@ function M.get_vstest_path()
       default_sdk_path = "/usr/local/share/dotnet/sdk/"
     end
 
-    if not process then
+    local obj = process:wait()
+
+    local out = obj.stdout
+    local info = dotnet_utils.parse_dotnet_info(out or "")
+    if info.sdk_path then
+      path_to_search = info.sdk_path
+      logger.info(string.format("neotest-vstest: detected sdk path: %s", path_to_search))
+    else
       path_to_search = default_sdk_path
       local log_string = string.format(
         "neotest-vstest: failed to detect sdk path. falling back to %s",
-        default_sdk_path
+        path_to_search
       )
-
       logger.info(log_string)
       nio.scheduler()
       vim.notify_once(log_string)
-    else
-      local out = process.stdout.read()
-      local info = dotnet_utils.parse_dotnet_info(out or "")
-      if info.sdk_path then
-        path_to_search = info.sdk_path
-        logger.info(
-          string.format("neotest-vstest: detected sdk path: %s", vim.g.neotest_vstest.sdk_path)
-        )
-      else
-        path_to_search = default_sdk_path
-        local log_string = string.format(
-          "neotest-vstest: failed to detect sdk path. falling back to %s",
-          path_to_search
-        )
-        logger.info(log_string)
-        nio.scheduler()
-        vim.notify_once(log_string)
-      end
-      process.close()
     end
   end
 
@@ -76,7 +55,8 @@ end
 ---@return { execute: fun(content: string), stop: fun() }
 function M.create_test_runner(project)
   local test_discovery_script = get_script("run_tests.fsx")
-  local testhost_dll = get_vstest_path()
+  nio.scheduler()
+  local testhost_dll = M.get_vstest_path()
 
   logger.debug("neotest-vstest: found discovery script: " .. test_discovery_script)
   logger.debug("neotest-vstest: found testhost dll: " .. testhost_dll)

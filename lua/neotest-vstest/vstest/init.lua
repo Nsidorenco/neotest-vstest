@@ -22,7 +22,7 @@ function Client:new(project)
   logger.info("neotest-vstest: Creating new (vstest) client for: " .. vim.inspect(project))
   local findSettings = function()
     local settings = nil
-    if vim.g.neotest_vstest.find_settings then
+    if vim.g.neotest_vstest and vim.g.neotest_vstest.find_settings then
       settings = vim.g.neotest_vstest.find_settings(project.proj_dir)
     end
     if settings ~= nil then
