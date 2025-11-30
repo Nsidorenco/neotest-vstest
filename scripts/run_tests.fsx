@@ -239,7 +239,7 @@ module TestDiscovery =
                 do
                     Console.WriteLine($"spawned test process with pid: {pid}")
                     use pidWriter = new StreamWriter(pidFile, append = false)
-                    pidWriter.WriteLine(pid)
+                    pidWriter.Write(pid)
 
                 while not (cts.Token.IsCancellationRequested || File.Exists(attachedFile)) do
                     ()
