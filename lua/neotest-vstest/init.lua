@@ -6,6 +6,13 @@
 ---@field settings_selector? fun(project_dir: string): string|nil function to find the .runsettings/testconfig.json in the project dir
 ---@field timeout_ms? number milliseconds to wait before timing out connection with test runner
 
+---@type neotest-vstest.Config
+local default_config = {
+  timeout_ms = 5 * 30 * 1000,
+}
+
+vim.g.neotest_vstest = vim.tbl_deep_extend("force", default_config, vim.g.neotest_vstest or {})
+
 ---@param config? neotest-vstest.Config
 ---@return neotest.Adapter
 local function create_adapter(config)
@@ -36,7 +43,6 @@ local function create_adapter(config)
     local nio = require("nio")
     local lib = require("neotest.lib")
     local logger = require("neotest.logging")
-    local dotnet_utils = require("neotest-vstest.dotnet_utils")
 
     if solution_dir then
       return solution_dir
@@ -107,7 +113,6 @@ local function create_adapter(config)
 
   function DotnetNeotestAdapter.is_test_file(file_path)
     local logger = require("neotest.logging")
-    local dotnet_utils = require("neotest-vstest.dotnet_utils")
     local client_discovery = require("neotest-vstest.client")
 
     logger.trace("neotest-vstest: checking if file is test file: " .. file_path)
@@ -145,7 +150,6 @@ local function create_adapter(config)
   end
 
   function DotnetNeotestAdapter.filter_dir(name, rel_path, root)
-    local dotnet_utils = require("neotest-vstest.dotnet_utils")
     local logger = require("neotest.logging")
     logger.trace("neotest-vstest: filtering dir", name, rel_path, root)
 
@@ -378,7 +382,6 @@ local function create_adapter(config)
     local lib = require("neotest.lib")
     local types = require("neotest.types")
     local logger = require("neotest.logging")
-    local dotnet_utils = require("neotest-vstest.dotnet_utils")
     local client_discovery = require("neotest-vstest.client")
 
     logger.info(string.format("neotest-vstest: scanning %s for tests...", path))
@@ -581,9 +584,16 @@ local DotnetNeotestAdapter = create_adapter()
 
 ---@param opts neotest-vstest.Config
 local function apply_user_settings(_, opts)
-  vim.g.neotest_vstest_sdk_path = opts and opts.sdk_path or nil
-  vim.g.neotest_vstest_find_settings = opts and opts.settings_selector or nil
-  vim.g.neotest_vstest_timeout_ms = opts and opts.timeout_ms or 5 * 30 * 1000
+  if opts then
+    vim.g.neotest_vstest.sdk_path = opts.sdk_path or vim.g.neotest_vstest.sdk_path
+    vim.g.neotest_vstest.build_opts = opts.build_opts or vim.g.neotest_vstest.build_opts
+    vim.g.neotest_vstest.dap_settings = opts.dap_settings or vim.g.neotest_vstest.dap_settings
+    vim.g.neotest_vstest.solution_selector = opts.solution_selector
+      or vim.g.neotest_vstest.solution_selector
+    vim.g.neotest_vstest.find_settings = opts.settings_selector
+      or vim.g.neotest_vstest.find_settings
+    vim.g.neotest_vstest.timeout_ms = opts.timeout_ms or vim.g.neotest_vstest.timeout_ms
+  end
   return create_adapter(opts)
 end
 

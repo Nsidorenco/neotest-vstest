@@ -22,8 +22,8 @@ function Client:new(project)
   logger.info("neotest-vstest: Creating new (vstest) client for: " .. vim.inspect(project))
   local findSettings = function()
     local settings = nil
-    if vim.g.neotest_vstest_find_settings then
-      settings = vim.g.neotest_vstest_find_settings(project.proj_dir)
+    if vim.g.neotest_vstest.find_settings then
+      settings = vim.g.neotest_vstest.find_settings(project.proj_dir)
     end
     if settings ~= nil then
       return settings
@@ -81,7 +81,7 @@ function Client:run_tests(ids)
   end
 
   nio.run(function()
-    cli_wrapper.spin_lock_wait_file(result_file, vim.g.neotest_vstest_timeout_ms)
+    cli_wrapper.spin_lock_wait_file(result_file, vim.g.neotest_vstest.timeout_ms)
     local parsed = {}
     local results = lib.files.read_lines(result_file)
     for _, line in ipairs(results) do
@@ -130,7 +130,7 @@ function Client:debug_tests(ids)
   nio.run(function()
     local parsed = {}
     local file_exists =
-      cli_wrapper.spin_lock_wait_file(result_file, vim.g.neotest_vstest_timeout_ms)
+      cli_wrapper.spin_lock_wait_file(result_file, vim.g.neotest_vstest.timeout_ms)
     assert(
       file_exists,
       "neotest-vstest: (possible timeout, check logs) result file does not exist: " .. result_file

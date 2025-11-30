@@ -5,15 +5,18 @@ local dotnet_utils = require("neotest-vstest.dotnet_utils")
 
 local M = {}
 
-local function get_vstest_path()
-  if not vim.g.neotest_vstest_sdk_path then
+function M.get_vstest_path()
+  local path_to_search = vim.g.neotest_vstest.sdk_path
+
+  if not path_to_search then
     local process = nio.process.run({
       cmd = "dotnet",
       args = { "--info" },
     })
 
     logger.debug(
-      "neotest-vstest: starting process to detect dotnet sdk path " .. tostring(process.pid)
+      "neotest-vstest: starting process to detect dotnet sdk path "
+        .. tostring(process and process.pid or 0)
     )
 
     local default_sdk_path
@@ -24,10 +27,10 @@ local function get_vstest_path()
     end
 
     if not process then
-      vim.g.neotest_vstest_sdk_path = default_sdk_path
+      path_to_search = default_sdk_path
       local log_string = string.format(
         "neotest-vstest: failed to detect sdk path. falling back to %s",
-        vim.g.neotest_vstest_sdk_path
+        default_sdk_path
       )
 
       logger.info(log_string)
@@ -37,15 +40,15 @@ local function get_vstest_path()
       local out = process.stdout.read()
       local info = dotnet_utils.parse_dotnet_info(out or "")
       if info.sdk_path then
-        vim.g.neotest_vstest_sdk_path = info.sdk_path
+        path_to_search = info.sdk_path
         logger.info(
-          string.format("neotest-vstest: detected sdk path: %s", vim.g.neotest_vstest_sdk_path)
+          string.format("neotest-vstest: detected sdk path: %s", vim.g.neotest_vstest.sdk_path)
         )
       else
-        vim.g.neotest_vstest_sdk_path = default_sdk_path
+        path_to_search = default_sdk_path
         local log_string = string.format(
           "neotest-vstest: failed to detect sdk path. falling back to %s",
-          vim.g.neotest_vstest_sdk_path
+          path_to_search
         )
         logger.info(log_string)
         nio.scheduler()
@@ -55,10 +58,7 @@ local function get_vstest_path()
     end
   end
 
-  return vim.fs.find(
-    "vstest.console.dll",
-    { upward = false, type = "file", path = vim.g.neotest_vstest_sdk_path }
-  )[1]
+  return vim.fs.find("vstest.console.dll", { upward = false, type = "file", path = path_to_search })[1]
 end
 
 local function get_script(script_name)
