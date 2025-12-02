@@ -9,6 +9,9 @@
 ---@param config? neotest-vstest.Config
 ---@return neotest.Adapter
 local function create_adapter(config)
+  vim.g.neotest_vstest_sdk_path = config and config.sdk_path or nil
+  vim.g.neotest_vstest_find_settings = config and config.settings_selector or nil
+  vim.g.neotest_vstest_timeout_ms = config and config.timeout_ms or 5 * 30 * 1000
   local dotnet_utils = require("neotest-vstest.dotnet_utils")
   config = config or {}
   dotnet_utils.add_opts(config.build_opts or {})
@@ -581,9 +584,6 @@ local DotnetNeotestAdapter = create_adapter()
 
 ---@param opts neotest-vstest.Config
 local function apply_user_settings(_, opts)
-  vim.g.neotest_vstest_sdk_path = opts and opts.sdk_path or nil
-  vim.g.neotest_vstest_find_settings = opts and opts.settings_selector or nil
-  vim.g.neotest_vstest_timeout_ms = opts and opts.timeout_ms or 5 * 30 * 1000
   return create_adapter(opts)
 end
 
