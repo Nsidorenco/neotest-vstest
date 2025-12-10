@@ -514,8 +514,10 @@ local function create_adapter(config)
       if position.type == "test" then
         logger.debug(position)
         local client = client_discovery.get_client_for_project(position.project, solution)
-        local tests = projects[client] or {}
-        projects[client] = vim.list_extend(tests, { position.id })
+        if client then
+          local tests = projects[client] or {}
+          projects[client] = vim.list_extend(tests, { position.id })
+        end
       end
     end
 
