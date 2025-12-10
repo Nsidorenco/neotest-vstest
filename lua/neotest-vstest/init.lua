@@ -503,11 +503,6 @@ local function create_adapter(config)
     local utilities = require("neotest-vstest.utilities")
     local client_discovery = require("neotest-vstest.client")
 
-    local tree = args.tree
-    if not tree then
-      return
-    end
-
     local projects = {}
 
     for _, position in tree:iter() do
@@ -517,6 +512,15 @@ local function create_adapter(config)
         if client then
           local tests = projects[client] or {}
           projects[client] = vim.list_extend(tests, { position.id })
+        else
+          vim.notify_once(
+            string.format(
+              "neotest-vstest: could not find adapter client for test '%s' in project '%s'",
+              position.name,
+              vim.inspect(position.project)
+            ),
+            vim.log.levels.ERROR
+          )
         end
       end
     end
