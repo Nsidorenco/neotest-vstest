@@ -505,7 +505,7 @@ local function create_adapter(config)
 
     local projects = {}
 
-    for _, position in tree:iter() do
+    for _, position in args.tree:iter() do
       if position.type == "test" then
         logger.debug(position)
         local client = client_discovery.get_client_for_project(position.project, solution)
