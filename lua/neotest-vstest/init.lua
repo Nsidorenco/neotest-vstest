@@ -505,6 +505,11 @@ local function create_adapter(config)
 
     local projects = {}
 
+    local tree = args.tree
+    if not tree then
+      return
+    end
+
     for _, position in tree:iter() do
       if position.type == "test" then
         logger.debug(position)
