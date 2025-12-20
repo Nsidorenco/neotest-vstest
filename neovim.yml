@@ -1,0 +1,21 @@
+---
+base: lua51
+name: neovim
+lua_versions:
+  - luajit
+
+globals:
+  vim:
+    any: true
+  jit:
+    any: true
+  assert:
+    any: true
+  describe:
+    any: true
+  it:
+    any: true
+  before_each:
+    any: true
+  lazy_setup:
+    any: true

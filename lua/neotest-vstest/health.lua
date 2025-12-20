@@ -4,7 +4,7 @@ M.check = function()
 
   vim.health.info("checking for dependencies...")
 
-  local has_nio, nio = pcall(require, "nio")
+  local has_nio, _ = pcall(require, "nio")
   if not has_nio then
     vim.health.error("nio is not installed. Please install nio to use neotest-vstest.")
   else

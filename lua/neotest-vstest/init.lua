@@ -11,6 +11,7 @@ local default_config = {
   timeout_ms = 5 * 30 * 1000,
 }
 
+---@type neotest-vstest.Config
 vim.g.neotest_vstest = vim.tbl_deep_extend("force", default_config, vim.g.neotest_vstest or {})
 
 ---@param config? neotest-vstest.Config

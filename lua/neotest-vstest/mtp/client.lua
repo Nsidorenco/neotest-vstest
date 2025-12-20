@@ -160,7 +160,7 @@ end
 function M.discovery_tests(dll_path)
   local tests = {}
 
-  local on_update = function(err, result, ctx)
+  local on_update = function(_err, result, _ctx)
     if result.changes and result.changes ~= vim.NIL then
       for _, test in ipairs(result.changes) do
         tests[#tests + 1] = test.node

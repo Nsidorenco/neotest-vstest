@@ -51,7 +51,7 @@ function M.find_runsettings_for_project(project_dir)
       return setting
     end
   end
-  logger.info(string.format("neotest-vstest: Found no .runsettings files"))
+  logger.info("neotest-vstest: Found no .runsettings files")
   return nil
 end
 
