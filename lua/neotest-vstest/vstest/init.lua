@@ -6,7 +6,6 @@ local utilities = require("neotest-vstest.utilities")
 local vstest_client = require("neotest-vstest.vstest.client")
 
 --- @class neotest-vstest.vstest-client: neotest-vstest.Client
---- @field project DotnetProjectInfo
 --- @field settings string? path to .runsettings file or nil
 --- @field private test_runner { execute: function, stop: function }
 local Client = {}
@@ -19,11 +18,12 @@ end
 
 ---@param project DotnetProjectInfo
 function Client:new(project)
+  local config = require("neotest-vstest.config").get_config()
   logger.info("neotest-vstest: Creating new (vstest) client for: " .. vim.inspect(project))
   local findSettings = function()
     local settings = nil
-    if vim.g.neotest_vstest and vim.g.neotest_vstest.find_settings then
-      settings = vim.g.neotest_vstest.find_settings(project.proj_dir)
+    if config.settings_selector then
+      settings = config.settings_selector(project.proj_dir)
     end
     if settings ~= nil then
       return settings
@@ -80,8 +80,10 @@ function Client:run_tests(ids)
     result_stop_stream()
   end
 
+  local config = require("neotest-vstest.config").get_config()
+
   nio.run(function()
-    cli_wrapper.spin_lock_wait_file(result_file, vim.g.neotest_vstest.timeout_ms)
+    cli_wrapper.spin_lock_wait_file(result_file, config.timeout_ms)
     local parsed = {}
     local results = lib.files.read_lines(result_file)
     for _, line in ipairs(results) do
@@ -127,10 +129,11 @@ function Client:debug_tests(ids)
     result_stop_stream()
   end
 
+  local config = require("neotest-vstest.config").get_config()
+
   nio.run(function()
     local parsed = {}
-    local file_exists =
-      cli_wrapper.spin_lock_wait_file(result_file, vim.g.neotest_vstest.timeout_ms)
+    local file_exists = cli_wrapper.spin_lock_wait_file(result_file, config.timeout_ms)
     assert(
       file_exists,
       "neotest-vstest: (possible timeout, check logs) result file does not exist: " .. result_file

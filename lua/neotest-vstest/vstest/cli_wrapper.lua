@@ -6,7 +6,8 @@ local dotnet_utils = require("neotest-vstest.dotnet_utils")
 local M = {}
 
 function M.get_vstest_path()
-  local path_to_search = vim.g.neotest_vstest and vim.g.neotest_vstest.sdk_path
+  local config = require("neotest-vstest.config").get_config()
+  local path_to_search = config.sdk_path
 
   if not path_to_search then
     local process = vim.system({ "dotnet", "--info" })
@@ -105,6 +106,7 @@ function M.create_test_runner(project)
     end,
     stop = function()
       process:kill(vim.uv.constants.SIGKILL)
+      nio.scheduler()
       vim.api.nvim_del_autocmd(cleanup_autocmd_id)
     end,
   }

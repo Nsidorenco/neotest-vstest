@@ -2,7 +2,6 @@ local logger = require("neotest.logging")
 local mtp_client = require("neotest-vstest.mtp.client")
 
 --- @class neotest-vstest.mtp-client: neotest-vstest.Client
---- @field project DotnetProjectInfo
 --- @field private last_discovered integer
 local Client = {}
 Client.__index = Client
@@ -70,7 +69,9 @@ function Client:run_tests(ids)
       nodes[#nodes + 1] = sanitize_node(node)
     end
   end
-  return mtp_client.run_tests(self.project.dll_file, nodes)
+  local client = mtp_client.run_tests(self.project.dll_file, nodes)
+  client.start_client()
+  return client
 end
 
 ---@async
