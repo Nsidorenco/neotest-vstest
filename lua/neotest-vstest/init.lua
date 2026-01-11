@@ -1,23 +1,7 @@
----@class neotest-vstest.Config
----@field sdk_path? string path to dotnet sdk. Example: /usr/local/share/dotnet/sdk/9.0.101/
----@field build_opts? BuildOpts
----@field dap_settings? dap.Configuration dap settings for debugging
----@field solution_selector? fun(solutions: string[]): string|nil
----@field settings_selector? fun(project_dir: string): string|nil function to find the .runsettings/testconfig.json in the project dir
----@field timeout_ms? number milliseconds to wait before timing out connection with test runner
-
----@type neotest-vstest.Config
-local default_config = {
-  timeout_ms = 5 * 30 * 1000,
-}
-
-vim.g.neotest_vstest = vim.tbl_deep_extend("force", default_config, vim.g.neotest_vstest or {})
-
----@param config? neotest-vstest.Config
 ---@return neotest.Adapter
-local function create_adapter(config)
+local function create_adapter()
   local dotnet_utils = require("neotest-vstest.dotnet_utils")
-  config = config or {}
+  local config = require("neotest-vstest.config").get_config()
   dotnet_utils.add_opts(config.build_opts or {})
 
   --- @type dap.Configuration
@@ -596,7 +580,7 @@ local DotnetNeotestAdapter = create_adapter()
 ---@param opts neotest-vstest.Config
 local function apply_user_settings(_, opts)
   vim.g.neotest_vstest = vim.tbl_deep_extend("force", vim.g.neotest_vstest or {}, opts or {})
-  return create_adapter(opts)
+  return create_adapter()
 end
 
 setmetatable(DotnetNeotestAdapter, {
