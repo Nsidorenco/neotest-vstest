@@ -64,6 +64,7 @@ The adapter optionally supports extra settings:
 
 ```lua
 -- NOTE: This should be set before calling require("neotest-vstest")
+--- @type neotest_vstest.Config
 vim.g.neotest_vstest = {
   -- Path to dotnet sdk path.
   -- Used in cases where the sdk path cannot be auto discovered.
@@ -88,6 +89,11 @@ vim.g.neotest_vstest = {
       -- Arguments that will be added to all `dotnet build` and `dotnet msbuild` commands
       additional_args = {}
   },
+  -- If project contains directories which are not supposed to be searched for solution files
+  discovery_directory_filter = function(search_path)
+    -- ignore hidden directories
+    return search_path:match("/%.")
+  end,
   timeout_ms = 30 * 5 * 1000 -- number of milliseconds to wait before timeout while communicating with adapter client
 }
 

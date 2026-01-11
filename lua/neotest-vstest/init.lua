@@ -34,8 +34,15 @@ local function create_adapter()
 
     local first_solution = lib.files.match_root_pattern("*.sln", "*.slnx")(path)
 
-    local solutions = vim.fs.find(function(name, _)
-      return name:match("%.slnx?$")
+    --- Only select solution files not in hidden directories or based on user filter
+    --- @type fun(search_path: string): boolean
+    local ignore_function = config.discovery_directory_filter
+      or function(search_path)
+        return search_path:match("/%.")
+      end
+
+    local solutions = vim.fs.find(function(name, search_path)
+      return name:match("%.slnx?$") and not ignore_function(search_path)
     end, {
       upward = false,
       type = "file",
