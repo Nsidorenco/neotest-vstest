@@ -175,7 +175,11 @@ local function create_adapter()
       end
       return is_project_reachable
     else
-      return true
+      if config.discovery_directory_filter then
+        return config.discovery_directory_filter(fullpath)
+      else
+        return true
+      end
     end
   end
 
