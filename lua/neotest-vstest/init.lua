@@ -539,13 +539,11 @@ local function create_adapter()
       stream = function()
         return function()
           local new_results = stream.get()
-          local ok, parsed = pcall(vim.json.decode, new_results, { luanil = { object = true } })
 
-          if not ok or not parsed then
-            return {}
-          end
+          logger.info("neotest-vstest: received streamed test results in adapter spec")
+          logger.debug(new_results)
 
-          return { [parsed.id] = parsed.result }
+          return { [new_results.id] = new_results.result }
         end
       end,
       strategy = (args.strategy == "dap" and require("neotest-vstest.strategies.vstest_debugger")(

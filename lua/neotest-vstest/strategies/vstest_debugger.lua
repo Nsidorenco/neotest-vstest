@@ -1,5 +1,4 @@
 local nio = require("nio")
-local FanoutAccum = require("neotest.types").FanoutAccum
 local logger = require("neotest.logging")
 local dotnet_utils = require("neotest-vstest.dotnet_utils")
 
@@ -7,15 +6,10 @@ local dotnet_utils = require("neotest-vstest.dotnet_utils")
 ---@return fun(spec: neotest.RunSpec): neotest.Process
 return function(dap_config)
   return function(spec)
+    local resultAccumulator = require("neotest-vstest.utilities").ResultAccumulator:new()
     local dap = require("dap")
 
     local handler_id = "neotest_" .. nio.fn.localtime()
-    local data_accum = FanoutAccum(function(prev, new)
-      if not prev then
-        return new
-      end
-      return prev .. new
-    end, nil)
 
     assert(
       vim.tbl_count(spec.context.client_id_map) <= 1,
@@ -34,39 +28,8 @@ return function(dap_config)
       end
     end
 
-    local output_path = nio.fn.tempname()
-    local open_err, output_fd = nio.uv.fs_open(output_path, "w", 438)
-    assert(not open_err, open_err)
-
-    data_accum:subscribe(function(data)
-      local write_err, _ = nio.uv.fs_write(output_fd, data)
-      assert(not write_err, write_err)
-    end)
-
-    local finish_future = nio.control.future()
-    local result_code
-
     local run_result = client:debug_tests(ids)
-
-    nio.run(function()
-      while not finish_future.is_set() do
-        local data = run_result.output_stream()
-        for _, line in ipairs(data) do
-          data_accum:push(line .. "\n")
-        end
-      end
-    end)
-
-    nio.run(function()
-      while not finish_future.is_set() do
-        local result = nio.first({ run_result.result_stream(), finish_future.wait })
-        logger.debug("neotest-vstest: got test stream result: ")
-        logger.debug(result)
-        if result then
-          spec.context.write_stream(result)
-        end
-      end
-    end)
+    resultAccumulator:add_run_result(run_result, spec.context.write_stream)
 
     logger.debug("neotest-vstest: starting debug session: " .. vim.inspect(run_result))
 
@@ -85,26 +48,26 @@ return function(dap_config)
           nio.run(run_result.on_attach)
         end
 
-        dap.listeners.after.event_output[handler_id] = function(_, body)
-          if vim.tbl_contains({ "stdout", "stderr" }, body.category) then
-            nio.run(function()
-              data_accum:push(body.output)
-            end)
-          end
-        end
-        dap.listeners.after.event_exited[handler_id] = function(_, info)
-          result_code = info.exitCode
-          pcall(finish_future.set)
-        end
+        -- dap.listeners.after.event_output[handler_id] = function(_, body)
+        --   if vim.tbl_contains({ "stdout", "stderr" }, body.category) then
+        --     nio.run(function()
+        --       data_accum:push(body.output)
+        --     end)
+        --   end
+        -- end
+        -- dap.listeners.after.event_exited[handler_id] = function(_, info)
+        --   result_code = info.exitCode
+        --   pcall(finish_future.set)
+        -- end
 
         return config
       end,
       after = function()
-        local received_exit = result_code ~= nil
-        if not received_exit then
-          result_code = 0
-          pcall(finish_future.set)
-        end
+        -- local received_exit = result_code ~= nil
+        -- if not received_exit then
+        --   result_code = 0
+        --   pcall(finish_future.set)
+        -- end
         dap.listeners.after.event_output[handler_id] = nil
         dap.listeners.after.event_exited[handler_id] = nil
       end,
@@ -122,39 +85,10 @@ return function(dap_config)
 
     logger.debug("neotest-vstest: returning debug result")
 
-    return {
-      is_complete = function()
-        return result_code ~= nil
-      end,
-      output_stream = function()
-        local queue = nio.control.queue()
-        data_accum:subscribe(queue.put)
-        return function()
-          return nio.first({ finish_future.wait, queue.get })
-        end
-      end,
-      output = function()
-        return output_path
-      end,
-      attach = function()
-        dap.repl.open()
-      end,
-      stop = function()
-        dap.terminate()
-        run_result.stop()
-      end,
-      result = function()
-        finish_future.wait()
-        local result = run_result.result_future.wait()
-        run_result.stop()
+    local set_result = function(result)
+      spec.context.results = vim.tbl_extend("force", spec.context.results, result)
+    end
 
-        logger.debug("neotest-vstest: got parsed results:")
-        logger.debug(result)
-
-        spec.context.results = vim.tbl_extend("force", spec.context.results, result)
-
-        return result_code
-      end,
-    }
+    return resultAccumulator:build_neotest_result_table(set_result)
   end
 end

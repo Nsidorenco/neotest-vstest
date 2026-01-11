@@ -122,6 +122,7 @@ function M.create_client(dll_path, on_update, on_log, mtp_env)
         )
         server:shutdown()
         mtp_process:kill(vim.uv.constants.SIGKILL)
+        nio.scheduler()
         vim.api.nvim_del_autocmd(cleanup_autocmd_id)
       end,
       before_init = function(params)
@@ -229,8 +230,9 @@ end
 ---@async
 ---@param dll_path string path to test project dll file
 ---@param nodes any[] list of test nodes to run
+---@param mtp_env? table<string, string> environment variables for the mtp server
 ---@return neotest-vstest.Client.RunResult
-function M.run_tests(dll_path, nodes)
+function M.run_tests(dll_path, nodes, mtp_env)
   local run_results = {}
   local result_stream = nio.control.queue()
   local output_stream = nio.control.queue()
@@ -263,31 +265,33 @@ function M.run_tests(dll_path, nodes)
     end)
   end
 
-  ---@type vim.lsp.Client
-  local client = M.create_client(dll_path, on_update, on_log).wait()
+  local client_future, mtp_process_id = M.create_client(dll_path, on_update, on_log, mtp_env)
 
-  nio.scheduler()
-
-  client:initialize()
   local run_id = uuid()
   local future_result = nio.control.future()
   local done_event = nio.control.event()
 
   logger.debug("neotest-vstest: running tests for: " .. vim.inspect(nodes))
 
-  client:request("testing/runTests", {
-    runId = run_id,
-    tests = nodes,
-  }, function(err, _)
-    nio.run(function()
-      if err then
-        future_result.set_error(err)
-      else
-        done_event.wait()
-        future_result.set(run_results)
-      end
+  ---@async
+  local start_client = function()
+    local client = client_future.wait()
+    client:initialize()
+    nio.scheduler()
+    client:request("testing/runTests", {
+      runId = run_id,
+      tests = nodes,
+    }, function(err, _)
+      nio.run(function()
+        if err then
+          future_result.set_error(err)
+        else
+          done_event.wait()
+          future_result.set(run_results)
+        end
+      end)
     end)
-  end)
+  end
 
   nio.run(function()
     while result_stream.size() > 0 and output_stream.size() > 0 and not future_result.is_set() do
@@ -297,11 +301,13 @@ function M.run_tests(dll_path, nodes)
   end)
 
   return {
+    pid = mtp_process_id,
+    start_client = start_client,
     result_future = future_result,
     result_stream = result_stream.get,
     output_stream = output_stream.get,
     stop = function()
-      client:stop(true)
+      client_future.wait():stop(true)
     end,
   }
 end
@@ -311,67 +317,15 @@ function M.debug_tests(dll_path, nodes)
     ["TESTINGPLATFORM_WAIT_ATTACH_DEBUGGER"] = "1",
   }
 
-  local run_results = {}
-  local result_stream = nio.control.queue()
-  local output_stream = nio.control.queue()
-  local future_result = nio.control.future()
-  local done_event = nio.control.event()
-
-  local on_update = function(_, result)
-    if result.changes and result.changes ~= vim.NIL then
-      for _, test in ipairs(result.changes) do
-        local test_result = parseTestResult(test)
-        if test_result then
-          run_results[test.node.uid] = test_result
-        end
-      end
-    end
-  end
-
-  local on_log = function(_, result, _)
-    nio.run(function()
-      output_stream.put_nowait({ result.message })
-    end)
-  end
-
-  local client_future, mtp_process_pid = M.create_client(dll_path, on_update, on_log, mtp_env)
-
-  nio.run(function()
-    while result_stream.size() > 0 and output_stream.size() > 0 and not future_result.is_set() do
-      nio.sleep(100)
-    end
-    done_event.set()
-  end)
+  local client = M.run_tests(dll_path, nodes, mtp_env)
 
   return {
-    pid = mtp_process_pid,
-    on_attach = function()
-      local client = client_future.wait()
-
-      nio.scheduler()
-
-      client:initialize()
-      local run_id = uuid()
-      client:request("testing/runTests", {
-        runId = run_id,
-        tests = nodes,
-      }, function(err, _)
-        nio.run(function()
-          if err then
-            future_result.set_error(err)
-          else
-            done_event.wait()
-            future_result.set(run_results)
-          end
-        end)
-      end)
-    end,
-    output_stream = output_stream.get,
-    result_stream = result_stream.get,
-    result_future = future_result,
-    stop = function()
-      client_future.wait():stop(true)
-    end,
+    pid = client.pid,
+    on_attach = client.start_client,
+    output_stream = client.output_stream,
+    result_stream = client.result_stream,
+    result_future = client.result_future,
+    stop = client.stop,
   }
 end
 

@@ -82,10 +82,10 @@ function M.discover_tests_in_project(runner, settings, project)
 
   logger.debug("neotest-vstest: Waiting for result file to populated...")
 
-  local max_wait = 60 * 1000 -- 60 sec
+  local config = require("neotest-vstest.config").get_config()
 
-  if cli_wrapper.spin_lock_wait_file(wait_file, max_wait) then
-    cli_wrapper.spin_lock_wait_file(output_file, max_wait)
+  if cli_wrapper.spin_lock_wait_file(wait_file, config.timeout_ms) then
+    cli_wrapper.spin_lock_wait_file(output_file, config.timeout_ms)
     local lines = lib.files.read_lines(output_file)
 
     logger.debug("neotest-vstest: file has been populated. Extracting test cases...")
