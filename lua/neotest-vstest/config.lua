@@ -8,9 +8,11 @@ local M = {}
 ---@field solution_selector? fun(solutions: string[]): string|nil
 ---@field settings_selector? fun(project_dir: string): string|nil function to find the .runsettings/testconfig.json in the project dir
 ---@field timeout_ms? number milliseconds to wait before timing out connection with test runner
+---@field broad_recursive_discovery? boolean enable fallback recursive solution discovery from the current path when no parent solution is found
 
 ---@type neotest-vstest.Config
 local default_config = {
+  broad_recursive_discovery = true,
   timeout_ms = 5 * 30 * 1000,
 }
 

@@ -41,17 +41,31 @@ local function create_adapter()
         return search_path:match("/%.")
       end
 
-    local solutions = vim.fs.find(function(name, search_path)
-      return name:match("%.slnx?$") and not ignore_function(search_path)
-    end, {
-      upward = false,
-      type = "file",
-      path = first_solution or path,
-      limit = math.huge,
-    })
+    local solutions = {}
 
-    logger.info(string.format("neotest-vstest: scanning %s for solution file...", first_solution))
-    logger.info(solutions)
+    if first_solution then
+      solutions = vim.fs.find(function(name, search_path)
+        return name:match("%.slnx?$") and not ignore_function(search_path)
+      end, {
+        upward = false,
+        type = "file",
+        path = first_solution,
+        limit = math.huge,
+      })
+      logger.info(string.format("neotest-vstest: scanning %s for solution file...", first_solution))
+      logger.info(solutions)
+    elseif config.broad_recursive_discovery then
+      solutions = vim.fs.find(function(name, search_path)
+        return name:match("%.slnx?$") and not ignore_function(search_path)
+      end, {
+        upward = false,
+        type = "file",
+        path = path,
+        limit = math.huge,
+      })
+      logger.info(string.format("neotest-vstest: scanning %s for solution file...", path))
+      logger.info(solutions)
+    end
 
     solution = config.solution_selector and config.solution_selector(solutions) or nil
 

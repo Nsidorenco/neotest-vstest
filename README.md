@@ -94,6 +94,8 @@ vim.g.neotest_vstest = {
     -- ignore hidden directories
     return search_path:match("/%.")
   end,
+  -- if no obvious parent solution is found, broadly scan downward for solution files from current path. This can freeze Neovim when started from broad directories.
+  broad_recursive_discovery = true,
   timeout_ms = 30 * 5 * 1000 -- number of milliseconds to wait before timeout while communicating with adapter client
 }
 
