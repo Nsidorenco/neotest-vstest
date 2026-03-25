@@ -122,13 +122,20 @@ describe("Test test detection", function()
     assert.are_same(expected_tests, tests)
   end)
 
+  local csharp_test_projects = {
+    { name = "CSharpTest", property = "IsTestProject" },
+    { name = "MtpCSharpTest", property = "IsTestingPlatformApplication" },
+  }
+
   nio.tests.it("filter non test directory", function()
     assert.is_false(plugin.filter_dir("bin", "/src/CSharpTest/bin", solution_path))
   end)
 
-  nio.tests.it("not filter test directory", function()
-    assert.is_truthy(plugin.filter_dir("CSharpTest", "/src/CSharpTest", solution_path))
-  end)
+  for _, project in ipairs(csharp_test_projects) do
+    nio.tests.it("not filter " .. project.property .. " test directory", function()
+      assert.is_truthy(plugin.filter_dir(project.name, "/src/" .. project.name, solution_path))
+    end)
+  end
 
   nio.tests.it("not filter nested test directory", function()
     assert.is_truthy(
