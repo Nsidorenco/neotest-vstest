@@ -297,7 +297,7 @@ local function get_solution_projects(solution_path)
   local all_projects_info = nio.gather(_test_projects)
   local test_projects = {}
   for _, project in pairs(all_projects_info) do
-    if project and project.is_test_project then
+    if project and (project.is_test_project or project.is_mtp_project) then
       test_projects[#test_projects + 1] = project
     end
   end
