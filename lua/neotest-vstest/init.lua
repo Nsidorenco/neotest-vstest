@@ -428,6 +428,7 @@ local function create_adapter()
 
       local root = lang_tree:parse(false)[1]:root()
 
+      ---@type vim.treesitter.Query
       local query = lib.treesitter.normalise_query(
         filetype,
         filetype == "fsharp" and require("neotest-vstest.queries.fsharp")
@@ -444,10 +445,11 @@ local function create_adapter()
           range = { root:range() },
         },
       }
-      for _, match in query:iter_matches(root, content, nil, nil, { all = false }) do
+      for _, match in query:iter_matches(root, content, nil, nil) do
         local captured_nodes = {}
         for i, capture in ipairs(query.captures) do
-          captured_nodes[capture] = match[i]
+          local nodes = match[i]
+          captured_nodes[capture] = type(nodes) == "table" and nodes[#nodes] or nodes
         end
         local res = build_position(content, captured_nodes, tests_in_file, path)
         if res then
