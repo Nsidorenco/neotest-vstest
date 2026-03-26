@@ -103,8 +103,16 @@ local function create_adapter()
       end
 
       if solution_future.wait() and solution then
+        local progress = require("neotest-vstest.progress")
+        local sln_name = vim.fs.basename(solution)
+
+        progress.begin("Building " .. sln_name .. "…")
         dotnet_utils.build_path(solution)
+
+        progress.update("Resolving projects in " .. sln_name .. "…")
         dotnet_utils.get_solution_info(solution)
+        progress.finish()
+
         solution = string.gsub(solution, "/", lib.files.sep)
         solution_dir = string.gsub(vim.fs.dirname(solution), "/", lib.files.sep)
         logger.info(string.format("neotest-vstest: found solution dir %s", solution_dir))
