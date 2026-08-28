@@ -53,10 +53,65 @@ function Client:discover_tests()
   return self.test_cases
 end
 
+--- Decode the first UTF-8 codepoint in `s` starting at byte `i`.
+--- Returns the codepoint and the number of bytes consumed.
+local function utf8_codepoint(s, i)
+  local b1 = s:byte(i)
+  if b1 < 0xC0 then
+    return b1, 1
+  elseif b1 < 0xE0 then
+    return (b1 % 0x20) * 0x40 + (s:byte(i + 1) % 0x40), 2
+  elseif b1 < 0xF0 then
+    return (b1 % 0x10) * 0x1000 + (s:byte(i + 1) % 0x40) * 0x40 + (s:byte(i + 2) % 0x40), 3
+  else
+    return (b1 % 0x08) * 0x40000
+      + (s:byte(i + 1) % 0x40) * 0x1000
+      + (s:byte(i + 2) % 0x40) * 0x40
+      + (s:byte(i + 3) % 0x40),
+      4
+  end
+end
+
+--- Escape all non-ASCII characters so the JSON-RPC payload is pure ASCII.
+---
+--- The MTP server (Microsoft.Testing.Platform v1, bundled in e.g. xunit.v3) reads the
+--- request body with a StreamReader: Content-Length is declared in UTF-8 *bytes* but the
+--- reader consumes *chars*. Any multi-byte character in the payload (e.g. "·" or "∞" in
+--- theory display names) makes chars < bytes, so the server over-reads into the next
+--- frame's headers, desynchronizes the stream, and crashes with a JsonReaderException.
+--- Keeping the payload ASCII-only guarantees bytes == chars.
+--- See https://github.com/Nsidorenco/neotest-vstest/issues/85
+local function escape_non_ascii(str)
+  if not str:find("[\128-\255]") then
+    return str
+  end
+  local out = {}
+  local i = 1
+  local n = #str
+  while i <= n do
+    local b = str:byte(i)
+    if b < 0x80 then
+      out[#out + 1] = str:sub(i, i)
+      i = i + 1
+    else
+      local cp, len = utf8_codepoint(str, i)
+      out[#out + 1] = string.format("\\u{%04X}", cp)
+      i = i + len
+    end
+  end
+  return table.concat(out)
+end
+
 local function sanitize_node(node)
-  node["display-name"] = node["display-name"]
-    and string.gsub(node["display-name"], "·", "\\u{00B7}")
-  return node
+  local sanitized = {}
+  for key, value in pairs(node) do
+    if type(value) == "string" then
+      sanitized[key] = escape_non_ascii(value)
+    else
+      sanitized[key] = value
+    end
+  end
+  return sanitized
 end
 
 ---@async
