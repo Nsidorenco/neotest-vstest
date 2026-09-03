@@ -102,8 +102,14 @@ describe("Test test detection", function()
     local positions = plugin.discover_positions(test_file)
 
     local tests = {}
+    local supported_position_types = {
+      file = true,
+      namespace = true,
+      test = true,
+    }
 
     for _, position in positions:iter() do
+      assert.is_true(supported_position_types[position.type])
       if position.type == "test" then
         tests[#tests + 1] = position.name
       end

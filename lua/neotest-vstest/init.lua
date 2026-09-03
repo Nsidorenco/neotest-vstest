@@ -217,11 +217,7 @@ local function create_adapter()
     parent.id = parent.type == "file" and parent.path or opts.position_id(parent, namespaces)
     local current_level = { parent }
     local child_namespaces = vim.list_extend({}, namespaces)
-    if
-      parent.type == "namespace"
-      or parent.type == "parameterized"
-      or (opts.nested_tests and parent.type == "test")
-    then
+    if parent.type == "namespace" or (opts.nested_tests and parent.type == "test") then
       child_namespaces[#child_namespaces + 1] = parent
     end
     if not parent.range then
@@ -240,7 +236,7 @@ local function create_adapter()
         return current_level
       end
 
-      if parent.type == "parameterized" then
+      if parent.is_parameterized then
         local pos = table.remove(positions, 1)
         current_level[#current_level + 1] = pos
       else
@@ -293,7 +289,10 @@ local function create_adapter()
       if #positions > 1 then
         local pos = positions[1]
         table.insert(positions, 1, {
-          type = "parameterized",
+          type = "namespace",
+          -- Keep this distinction for build_structure without exposing an
+          -- unsupported position type to Neotest.
+          is_parameterized = true,
           path = pos.path,
           -- remove parameterized part of test name
           name = pos.name:gsub("<.*>", ""):gsub("%(.*%)", ""),
