@@ -17,13 +17,14 @@ local function create_adapter()
 
   local solution
   local solution_dir
+  local root_semaphore = require("nio").control.semaphore(1)
 
   ---@package
   ---@type neotest.Adapter
   ---@diagnostic disable-next-line: missing-fields
   local DotnetNeotestAdapter = { name = "neotest-vstest" }
 
-  function DotnetNeotestAdapter.root(path)
+  local function find_root(path)
     local nio = require("nio")
     local lib = require("neotest.lib")
     local logger = require("neotest.logging")
@@ -114,6 +115,14 @@ local function create_adapter()
 
     logger.info(string.format("neotest-vstest: no solution file found in %s", path))
     return lib.files.match_root_pattern(".git")(path) or path
+  end
+
+  function DotnetNeotestAdapter.root(path)
+    local root
+    root_semaphore.with(function()
+      root = find_root(path)
+    end)
+    return root
   end
 
   function DotnetNeotestAdapter.is_test_file(file_path)
