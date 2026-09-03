@@ -254,7 +254,7 @@ module TestDiscovery =
 
 
     let main (argv: string[]) =
-        if argv.Length <> 1 then
+        if argv.Length < 1 then
             invalidArg "CommandLineArgs" "Usage: fsi script.fsx <vstest-console-path>"
 
         let console = argv[0]
