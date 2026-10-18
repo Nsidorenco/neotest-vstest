@@ -8,14 +8,9 @@ local M = {}
 ---@param project_dir string
 ---@return string? path to .runsettings file to use or nil
 function M.find_runsettings_for_project(project_dir)
-  local settings = vim.fs.find(function(name, _)
-    return name:match("%.runsettings$")
-  end, {
-    upward = false,
-    type = "file",
-    path = project_dir,
-    limit = math.huge,
-  })
+  local settings = vim.tbl_filter(function(file)
+    return vim.fs.basename(file):match("%.runsettings$") ~= nil
+  end, lib.files.find(project_dir))
 
   for _, set in pairs(settings) do
     logger.debug(string.format("neotest-vstest: Found .runsettings: %s", set))
@@ -95,17 +90,14 @@ function M.discover_tests_in_project(runner, settings, project)
       local decoded = vim.json.decode(line, { luanil = { object = true } }) or {}
       local file = vim.fs.normalize(decoded.File or "")
       local tests = tests_in_files[file] or {}
+      tests_in_files[file] = tests
 
-      local test = {
-        [decoded.Test.Id] = {
-          CodeFilePath = decoded.Test.CodeFilePath,
-          DisplayName = decoded.Test.DisplayName,
-          LineNumber = decoded.Test.LineNumber,
-          FullyQualifiedName = decoded.Test.FullyQualifiedName,
-        },
+      tests[decoded.Test.Id] = {
+        CodeFilePath = decoded.Test.CodeFilePath,
+        DisplayName = decoded.Test.DisplayName,
+        LineNumber = decoded.Test.LineNumber,
+        FullyQualifiedName = decoded.Test.FullyQualifiedName,
       }
-
-      tests_in_files[file] = vim.tbl_extend("force", tests, test)
     end
 
     -- DisplayName may be almost equal to FullyQualifiedName of a test

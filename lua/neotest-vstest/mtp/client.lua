@@ -1,6 +1,7 @@
 local nio = require("nio")
 local logger = require("neotest.logging")
 local types = require("neotest.types")
+local dotnet_utils = require("neotest-vstest.dotnet_utils")
 
 local M = {}
 
@@ -10,6 +11,7 @@ local M = {}
 ---@param mtp_env? table<string, string> environment variables for the mtp server
 ---@return nio.control.Future<uv.uv_tcp_t> server_future, vim.SystemObj mtp_process
 local function start_server(dll_path, mtp_env)
+  local dotnet = dotnet_utils.get_dotnet_executable()
   local server, server_err = vim.uv.new_tcp()
   assert(server, server_err)
 
@@ -59,7 +61,7 @@ local function start_server(dll_path, mtp_env)
   logger.debug("neotest-vstest: proxy server started on port: " .. server:getsockname().port)
 
   local process = vim.system({
-    "dotnet",
+    dotnet,
     dll_path,
     "--server",
     "--client-port",
@@ -112,6 +114,9 @@ function M.create_client(dll_path, on_update, on_log, mtp_env)
 
   nio.run(function()
     local server = server_future.wait()
+    -- the server future is set in a libuv callback, and creating a client can load vim.lsp,
+    -- which calls functions that are not allowed there
+    nio.scheduler()
     local client = vim.lsp.client.create({
       name = "neotest-mtp",
       cmd = vim.lsp.rpc.connect(server:getsockname().ip, server:getsockname().port),
@@ -178,10 +183,31 @@ function M.discovery_tests(dll_path)
 
   client:initialize()
   local run_id = uuid()
-  client:request_sync("testing/discoverTests", {
+  -- request_sync would wait in vim.wait, which holds back the user's input until discovery ends
+  local response = nio.control.future()
+  client:request("testing/discoverTests", {
     runId = run_id,
-  }, 30000)
+  }, function(err)
+    response.set(err or false)
+  end)
+  local timed_out = nio.first({
+    function()
+      local err = response.wait()
+      if err then
+        logger.warn("neotest-vstest: test discovery failed for " .. dll_path, err)
+      end
+      return false
+    end,
+    function()
+      nio.sleep(30000)
+      return true
+    end,
+  })
+  if timed_out then
+    logger.warn("neotest-vstest: timed out discovering tests for " .. dll_path)
+  end
 
+  nio.scheduler()
   logger.debug("neotest-vstest: Discovered test results: " .. vim.inspect(tests))
 
   client:stop(true)

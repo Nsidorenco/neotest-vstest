@@ -37,11 +37,12 @@ M.ResultAccumulator.__index = M.ResultAccumulator
 function M.ResultAccumulator:new()
   local output_finish_future = nio.control.future()
 
+  -- the output is kept as a list of chunks, since joining it on every push makes each one
+  -- copy all output so far
   local output_accum = FanoutAccum(function(prev, new)
-    if not prev then
-      return new
-    end
-    return prev .. new
+    prev = prev or {}
+    prev[#prev + 1] = new
+    return prev
   end, nil)
 
   local output_path = nio.fn.tempname()
@@ -88,7 +89,8 @@ function M.ResultAccumulator:new()
     output_stream = function()
       local queue = nio.control.queue()
       output_accum:subscribe(function(data)
-        queue.put_nowait(data)
+        -- a late subscriber first receives all chunks pushed before it subscribed
+        queue.put_nowait(type(data) == "table" and table.concat(data) or data)
       end)
       return function()
         local data = nio.first({ queue.get, output_finish_future.wait })

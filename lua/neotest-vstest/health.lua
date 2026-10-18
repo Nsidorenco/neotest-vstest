@@ -22,7 +22,18 @@ M.check = function()
 
   vim.health.info("Checking for vstest.console.dll...")
   local cli_wrapper = require("neotest-vstest.vstest.cli_wrapper")
-  local vstest_path = cli_wrapper.get_vstest_path()
+  -- the lookup is async, while health checks run synchronously
+  local vstest_path, done = nil, not has_nio
+  if has_nio then
+    nio.run(function()
+      vstest_path = cli_wrapper.get_vstest_path()
+    end, function()
+      done = true
+    end)
+  end
+  vim.wait(60000, function()
+    return done
+  end)
 
   -- make sure setup function parameters are ok
   if not vstest_path then

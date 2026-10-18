@@ -24,20 +24,24 @@ local function map_test_cases(project, test_nodes)
   for _, node in ipairs(test_nodes) do
     local location = node["location.file"] or project.proj_file
     local line_number = node["location.line-start"] or node["location.line-end"] or 0
-    local fully_qualified_name = node["location.type"]
+    local fully_qualified_name = (
+      node["location.type"]
+      and node["location.method"]
+      and (node["location.type"] .. "." .. node["location.method"])
+    )
+      or node["location.type"]
       or node["location.method"]
       or node["display-name"]
     local file = location and vim.fs.normalize(location)
-    local existing = test_cases[file] or {}
     if node.uid then
-      test_cases[file] = vim.tbl_extend("force", existing, {
-        [node.uid] = {
-          CodeFilePath = location,
-          DisplayName = string.gsub(node["display-name"], "[^(]+%.", "", 1),
-          LineNumber = line_number,
-          FullyQualifiedName = fully_qualified_name,
-        },
-      })
+      local existing = test_cases[file] or {}
+      test_cases[file] = existing
+      existing[node.uid] = {
+        CodeFilePath = location,
+        DisplayName = (string.gsub(node["display-name"], "[^(]+%.", "", 1)),
+        LineNumber = line_number,
+        FullyQualifiedName = fully_qualified_name,
+      }
     else
       logger.warn("neotest-vstest: failed to map test case: " .. vim.inspect(node))
     end

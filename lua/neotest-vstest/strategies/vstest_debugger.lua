@@ -21,11 +21,7 @@ return function(dap_config)
     local ids = spec.context.client_id_map[client]
 
     if client then
-      if spec.context.solution then
-        dotnet_utils.build_path(spec.context.solution)
-      else
-        dotnet_utils.build_project(client.project)
-      end
+      dotnet_utils.build_project(client.project)
     end
 
     local run_result = client:debug_tests(ids)

@@ -67,11 +67,14 @@ function Client:run_tests(ids)
   local result_stream = utilities.stream_queue()
 
   nio.run(function()
-    local stream = result_stream_data()
-    for _, line in ipairs(stream) do
-      local success, result = pcall(vim.json.decode, line)
-      assert(success, "neotest-vstest: failed to decode result stream: " .. line)
-      result_stream.write(result)
+    -- each call only returns the lines written since the last one, so keep reading until stopped
+    while true do
+      local stream = result_stream_data()
+      for _, line in ipairs(stream) do
+        local success, result = pcall(vim.json.decode, line)
+        assert(success, "neotest-vstest: failed to decode result stream: " .. line)
+        result_stream.write(result)
+      end
     end
   end)
 
@@ -116,11 +119,13 @@ function Client:debug_tests(ids)
   local result_stream = utilities.stream_queue()
 
   nio.run(function()
-    local stream = result_stream_data()
-    for _, line in ipairs(stream) do
-      local success, result = pcall(vim.json.decode, line)
-      assert(success, "neotest-vstest: failed to decode result stream: " .. line)
-      result_stream.write(result)
+    while true do
+      local stream = result_stream_data()
+      for _, line in ipairs(stream) do
+        local success, result = pcall(vim.json.decode, line)
+        assert(success, "neotest-vstest: failed to decode result stream: " .. line)
+        result_stream.write(result)
+      end
     end
   end)
 

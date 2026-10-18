@@ -38,6 +38,7 @@ type NeotestResult =
       errors: NeoTestResultError array }
 
 module TestDiscovery =
+    // every command is `<command> <session> <args...>`, where each session is one test project
     let parseArgs (args: string) =
         args.Split(" ", StringSplitOptions.TrimEntries &&& StringSplitOptions.RemoveEmptyEntries)
         |> Array.tail
@@ -47,10 +48,11 @@ module TestDiscovery =
         if str.StartsWith("discover") then
             let args = parseArgs str
 
-            {| OutputPath = args[0]
-               WaitFile = args[1]
-               RunSettings = args[2]
-               Sources = args[3..] |}
+            {| Session = args[0]
+               OutputPath = args[1]
+               WaitFile = args[2]
+               RunSettings = args[3]
+               Sources = args[4..] |}
             |> ValueOption.Some
         else
             ValueOption.None
@@ -60,12 +62,13 @@ module TestDiscovery =
         if str.StartsWith("run-tests") then
             let args = parseArgs str
 
-            {| StreamPath = args[0]
-               OutputPath = args[1]
-               ProcessOutput = args[2]
-               OutputDirPath = args[3]
-               RunSettings = args[4]
-               Ids = args[5..] |> Array.map Guid.Parse |}
+            {| Session = args[0]
+               StreamPath = args[1]
+               OutputPath = args[2]
+               ProcessOutput = args[3]
+               OutputDirPath = args[4]
+               RunSettings = args[5]
+               Ids = args[6..] |> Array.map Guid.Parse |}
             |> ValueOption.Some
         else
             ValueOption.None
@@ -75,17 +78,32 @@ module TestDiscovery =
         if str.StartsWith("debug-tests") then
             let args = parseArgs str
 
-            {| PidPath = args[0]
-               AttachedPath = args[1]
-               StreamPath = args[2]
-               OutputPath = args[3]
-               ProcessOutput = args[4]
-               OutputDirPath = args[5]
-               RunSettings = args[6]
-               Ids = args[7..] |> Array.map Guid.Parse |}
+            {| Session = args[0]
+               PidPath = args[1]
+               AttachedPath = args[2]
+               StreamPath = args[3]
+               OutputPath = args[4]
+               ProcessOutput = args[5]
+               OutputDirPath = args[6]
+               RunSettings = args[7]
+               Ids = args[8..] |> Array.map Guid.Parse |}
             |> ValueOption.Some
         else
             ValueOption.None
+
+    [<return: Struct>]
+    let (|EndSession|_|) (str: string) =
+        if str.StartsWith("end-session") then
+            ValueOption.Some((parseArgs str).[0])
+        else
+            ValueOption.None
+
+    /// Neovim reads a file as soon as it exists, so it is written elsewhere and moved into place
+    /// only once complete.
+    let writeFileAtomically (path: string) (content: string) =
+        let tempPath = path + ".tmp"
+        File.WriteAllText(tempPath, content)
+        File.Move(tempPath, path, true)
 
     let logHandler (level: TestMessageLevel) (message: string) =
         if not <| String.IsNullOrWhiteSpace message then
@@ -94,13 +112,29 @@ module TestDiscovery =
             else
                 Console.WriteLine(message)
 
-    let discoveredTests = ConcurrentDictionary<Guid, TestCase>()
+    /// A vstest console for one test project. Projects share this script's process,
+    /// which is slow to start, but each keeps its own console and discovered tests.
+    type Session(console: string, parameters: ConsoleParameters) =
+        let wrapper = VsTestConsoleWrapper(console, parameters)
+        do wrapper.StartSession()
 
-    let getTestCases (ids: Guid seq) =
-        discoveredTests
-        |> Seq.choose (fun kv -> if ids |> Seq.contains kv.Key then Some kv.Value else None)
+        member _.Wrapper = wrapper
 
-    type PlaygroundTestDiscoveryHandler(waitFile: string, outputFile: string) =
+        /// replaced as a whole once a discovery completes, so runs never see a partial discovery
+        member val Tests = ConcurrentDictionary<Guid, TestCase>() with get, set
+
+    let getTestCases (tests: ConcurrentDictionary<Guid, TestCase>) (ids: Guid seq) =
+        ids
+        |> Seq.choose (fun id ->
+            match tests.TryGetValue id with
+            | true, testCase -> Some testCase
+            | _ -> None)
+        |> Seq.toArray
+
+    type PlaygroundTestDiscoveryHandler
+        (waitFile: string, outputFile: string, publish: ConcurrentDictionary<Guid, TestCase> -> unit) =
+        let discoveredTests = ConcurrentDictionary<Guid, TestCase>()
+
         interface ITestDiscoveryEventsHandler2 with
             member _.HandleDiscoveredTests(discoveredTestCases: IEnumerable<TestCase>) =
                 Console.WriteLine($"Discovered tests: {Seq.length discoveredTestCases}")
@@ -136,6 +170,8 @@ module TestDiscovery =
                               FullyQualifiedName = testCase.FullyQualifiedName } })
                     |> Seq.iter (JsonConvert.SerializeObject >> testsWriter.WriteLine)
 
+                publish discoveredTests
+
                 use waitFileWriter = new StreamWriter(waitFile, append = false)
                 waitFileWriter.WriteLine("1")
 
@@ -153,14 +189,12 @@ module TestDiscovery =
             member _.HandleTestRunComplete
                 (_testRunCompleteArgs, _lastChunkArgs, _runContextAttachments, _executorUris)
                 =
-                use outputWriter = new StreamWriter(outputFilePath, append = false)
-
                 let output =
                     resultsDictionary
                     |> Seq.map (fun kv -> {| id = kv.Key; result = kv.Value |} |> JsonConvert.SerializeObject)
                     |> String.concat Environment.NewLine
 
-                outputWriter.Write(output)
+                writeFileAtomically outputFilePath output
 
             member __.HandleLogMessage(_level, message) =
                 if not <| String.IsNullOrWhiteSpace message then
@@ -238,8 +272,7 @@ module TestDiscovery =
 
                 do
                     Console.WriteLine($"spawned test process with pid: {pid}")
-                    use pidWriter = new StreamWriter(pidFile, append = false)
-                    pidWriter.Write(pid)
+                    writeFileAtomically pidFile (string pid)
 
                 while not (cts.Token.IsCancellationRequested || File.Exists(attachedFile)) do
                     ()
@@ -277,97 +310,161 @@ module TestDiscovery =
 
         let options = TestPlatformOptions(CollectMetrics = false)
 
-        let r =
-            VsTestConsoleWrapper(console, ConsoleParameters(EnvironmentVariables = environmentVariables))
-
         let testSession = TestSessionInfo()
 
-        r.StartSession()
+        let sessions = ConcurrentDictionary<string, Lazy<Session>>()
+
+        let getSession (id: string) =
+            let session =
+                sessions.GetOrAdd(
+                    id,
+                    fun _ -> lazy (Session(console, ConsoleParameters(EnvironmentVariables = environmentVariables)))
+                )
+
+            try
+                session.Value
+            with e ->
+                // drop the failed session so the next command retries it
+                sessions.TryRemove(KeyValuePair(id, session)) |> ignore
+                // lines with this prefix are shown to the user by neovim
+                Console.WriteLine($"neotest-vstest-error: failed to start vstest console: {e.Message}")
+                reraise ()
+
+        // commands run off the read loop so that one project's command never holds up another's.
+        // The returned task never fails, so later commands can wait on it.
+        let spawn (name: string) (work: unit -> Task) : Task =
+            Task.Run(fun () ->
+                task {
+                    try
+                        do! work ()
+                    with e ->
+                        Console.WriteLine($"failed to {name}. Exception: {e}")
+                }
+                :> Task)
+
+        /// the latest discovery sent for each session. Only the read loop touches this, so a command
+        /// waits for exactly the discoveries that were sent before it.
+        let discoveries = Dictionary<string, Task>()
+
+        let discoveryFor (id: string) =
+            match discoveries.TryGetValue id with
+            | true, discovery -> discovery
+            | _ -> Task.CompletedTask
 
         let mutable loop = true
 
         while loop do
             match Console.ReadLine() with
             | DiscoveryRequest args ->
-                // spawn as task to allow running discovery concurrently
                 let sourcesStr = args.Sources |> String.concat " "
-                discoveredTests.Clear()
+                let previous = discoveryFor args.Session
 
-                try
-                    let discoveryHandler =
-                        PlaygroundTestDiscoveryHandler(args.WaitFile, args.OutputPath) :> ITestDiscoveryEventsHandler2
+                discoveries[args.Session] <-
+                    spawn $"discover tests for {sourcesStr}" (fun () ->
+                        task {
+                            // a session discovers one at a time, in the order the discoveries were sent
+                            do! previous
+                            let session = getSession args.Session
 
-                    let settings = 
-                        if (args.RunSettings.CompareTo "nil" <> 0) then
-                            System.IO.File.ReadAllText(args.RunSettings)
-                        else
-                            nullSettings
+                            let discoveryHandler =
+                                PlaygroundTestDiscoveryHandler(
+                                    args.WaitFile,
+                                    args.OutputPath,
+                                    fun tests -> session.Tests <- tests
+                                )
+                                :> ITestDiscoveryEventsHandler2
 
-                    Console.WriteLine($"Discovering tests for: {sourcesStr}")
-                    r.DiscoverTests(args.Sources, settings, options, testSession, discoveryHandler)
-                    Console.WriteLine($"Discovering tests for: {sourcesStr}")
-                with e ->
-                    Console.WriteLine($"failed to discovery tests for {sourcesStr}. Exception: {e}")
+                            let settings =
+                                if (args.RunSettings.CompareTo "nil" <> 0) then
+                                    System.IO.File.ReadAllText(args.RunSettings)
+                                else
+                                    nullSettings
+
+                            Console.WriteLine($"Discovering tests for: {sourcesStr}")
+                            session.Wrapper.DiscoverTests(args.Sources, settings, options, testSession, discoveryHandler)
+                            Console.WriteLine($"Discovering tests for: {sourcesStr}")
+                        })
 
             | RunTests args ->
-                task {
-                    let testCases = getTestCases args.Ids
+                let discovery = discoveryFor args.Session
 
-                    use testHandler =
-                        new PlaygroundTestRunHandler(
-                            args.StreamPath,
-                            args.OutputPath,
-                            args.ProcessOutput,
-                            args.OutputDirPath
-                        )
-                    
-                    let settings = 
-                        if (args.RunSettings.CompareTo "nil" <> 0) then
-                            System.IO.File.ReadAllText(args.RunSettings)
-                        else
-                            nullSettings
-                    
-                    // spawn as task to allow running concurrent tests
-                    do! r.RunTestsAsync(testCases, settings, testHandler)
-                    Console.WriteLine($"Done running tests for ids: ")
+                spawn "run tests" (fun () ->
+                    task {
+                        do! discovery
+                        let session = getSession args.Session
+                        let testCases = getTestCases session.Tests args.Ids
 
-                    for id in args.Ids do
-                        Console.Write($"{id} ")
+                        use testHandler =
+                            new PlaygroundTestRunHandler(
+                                args.StreamPath,
+                                args.OutputPath,
+                                args.ProcessOutput,
+                                args.OutputDirPath
+                            )
 
-                    return ()
-                }
+                        let settings =
+                            if (args.RunSettings.CompareTo "nil" <> 0) then
+                                System.IO.File.ReadAllText(args.RunSettings)
+                            else
+                                nullSettings
+
+                        do! session.Wrapper.RunTestsAsync(testCases, settings, testHandler)
+                        Console.WriteLine($"Done running tests for ids: ")
+
+                        for id in args.Ids do
+                            Console.Write($"{id} ")
+                    })
                 |> ignore
             | DebugTests args ->
-                task {
-                    let testCases = getTestCases args.Ids
+                let discovery = discoveryFor args.Session
 
-                    use testHandler =
-                        new PlaygroundTestRunHandler(
-                            args.StreamPath,
-                            args.OutputPath,
-                            args.ProcessOutput,
-                            args.OutputDirPath
-                        )
+                spawn "debug tests" (fun () ->
+                    task {
+                        do! discovery
+                        let session = getSession args.Session
+                        let testCases = getTestCases session.Tests args.Ids
 
-                    let settings=
-                        if (args.RunSettings.CompareTo "nil" <> 0) then
-                            System.IO.File.ReadAllText(args.RunSettings)
-                        else
-                            nullSettings
-     
-                    let debugLauncher = DebugLauncher(args.PidPath, args.AttachedPath)
-                    Console.WriteLine($"Starting {Seq.length testCases} tests in debug-mode")
+                        use testHandler =
+                            new PlaygroundTestRunHandler(
+                                args.StreamPath,
+                                args.OutputPath,
+                                args.ProcessOutput,
+                                args.OutputDirPath
+                            )
 
-                    do! Task.Yield()
-                    r.RunTestsWithCustomTestHost(testCases, settings, testHandler, debugLauncher)
-                }
+                        let settings =
+                            if (args.RunSettings.CompareTo "nil" <> 0) then
+                                System.IO.File.ReadAllText(args.RunSettings)
+                            else
+                                nullSettings
+
+                        let debugLauncher = DebugLauncher(args.PidPath, args.AttachedPath)
+                        Console.WriteLine($"Starting {Seq.length testCases} tests in debug-mode")
+
+                        session.Wrapper.RunTestsWithCustomTestHost(testCases, settings, testHandler, debugLauncher)
+                    })
                 |> ignore
+            | EndSession id ->
+                let discovery = discoveryFor id
+                discoveries.Remove id |> ignore
+
+                match sessions.TryRemove id with
+                | true, session when session.IsValueCreated ->
+                    spawn "end session" (fun () ->
+                        task {
+                            do! discovery
+                            session.Value.Wrapper.EndSession()
+                        })
+                    |> ignore
+                | _ -> ()
             | input ->
                 Console.WriteLine($"Unknown command: {input}. Terminating process.")
                 Environment.ExitCode <- 1
                 loop <- false
 
-        r.EndSession()
+        for session in sessions.Values do
+            if session.IsValueCreated then
+                session.Value.Wrapper.EndSession()
 
         Environment.ExitCode
 

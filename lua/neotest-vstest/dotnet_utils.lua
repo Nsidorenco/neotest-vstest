@@ -2,6 +2,7 @@ local nio = require("nio")
 local lib = require("neotest.lib")
 local logger = require("neotest.logging")
 local files = require("neotest-vstest.files")
+local project_cache = require("neotest-vstest.project_cache")
 
 --- @class BuildOpts
 --- @field additional_args? string[]
@@ -27,22 +28,68 @@ function dotnet_utils.parse_dotnet_info(input)
   return { sdk_path = match and vim.trim(match) }
 end
 
+---@type nio.control.Future?
+local dotnet_executable
+
+---vim.system looks up executables on the main thread, which takes hundreds of milliseconds with
+---a long PATH.
+---@async
+---@return string path to dotnet, or "dotnet" if it is not on the PATH
+function dotnet_utils.get_dotnet_executable()
+  if not dotnet_executable then
+    dotnet_executable = nio.control.future()
+    local is_windows = vim.uv.os_uname().sysname:find("Windows") ~= nil
+    local name = is_windows and "dotnet.exe" or "dotnet"
+    local path = "dotnet"
+    for dir in vim.gsplit(vim.uv.os_getenv("PATH") or "", is_windows and ";" or ":") do
+      local candidate = vim.fs.joinpath(dir, name)
+      local _, stat = nio.uv.fs_stat(candidate)
+      if dir ~= "" and stat and stat.type == "file" then
+        path = candidate
+        break
+      end
+    end
+    dotnet_executable.set(path)
+  end
+  return dotnet_executable.wait()
+end
+
+---runs the dotnet cli, with the configured build args appended unless `opts.no_build_args` is set
+---@async
+---@param args string[] arguments after `dotnet`
+---@param opts? { no_build_args?: boolean }
+---@return integer exit_code, table output
+function dotnet_utils.run_dotnet(args, opts)
+  local cmd = { dotnet_utils.get_dotnet_executable() }
+  vim.list_extend(cmd, args)
+  if not (opts and opts.no_build_args) then
+    vim.list_extend(cmd, dotnet_utils.opts.additional_args or {})
+  end
+  return lib.process.run(cmd, { stdout = true, stderr = true })
+end
+
+-- each evaluation is its own msbuild process, so a large solution would otherwise start
+-- one per project at once
+local evaluation_semaphore = nio.control.semaphore(math.max(1, vim.uv.available_parallelism()))
+
+---@async
+---@param args string[] arguments after `dotnet msbuild`
+---@return integer exit_code, table output
+local function run_msbuild(args)
+  local code, res
+  evaluation_semaphore.with(function()
+    code, res = dotnet_utils.run_dotnet(vim.list_extend({ "msbuild" }, args))
+  end)
+  return code, res
+end
+
 ---@param proj_file string
 ---@return string? target_framework
 local function get_target_frameworks(proj_file)
-  local msbuild_cmd = {
-    "dotnet",
-    "msbuild",
+  local code, res = run_msbuild({
     proj_file,
     "-getProperty:TargetFramework",
     "-getProperty:TargetFrameworks",
-  }
-  for _, arg in ipairs(dotnet_utils.opts.additional_args or {}) do
-    table.insert(msbuild_cmd, arg)
-  end
-  local code, res = lib.process.run(msbuild_cmd, {
-    stderr = true,
-    stdout = true,
   })
 
   logger.debug("neotest-vstest: msbuild target frameworks for " .. proj_file .. ":")
@@ -115,6 +162,7 @@ end
 ---@field last_discovered integer
 ---@field is_test_project boolean
 ---@field is_mtp_project boolean is project compiled using Microsoft.Testting.Platform
+---@field assets_file string? path to project.assets.json
 
 ---@type table<string, DotnetProjectInfo>
 local proj_info_cache = {}
@@ -123,6 +171,30 @@ local proj_info_cache = {}
 local file_to_project_map = {}
 
 local project_semaphore = {}
+
+---@param proj_data DotnetProjectInfo
+---@param compile_items string[]
+---@return DotnetProjectInfo?
+local function register_project(proj_data, compile_items)
+  setmetatable(proj_data, {
+    __eq = function(a, b)
+      return vim.fs.normalize(a.proj_file or "") == vim.fs.normalize(b.proj_file or "")
+    end,
+  })
+
+  proj_info_cache[vim.fs.normalize(proj_data.proj_file)] = proj_data
+
+  for _, item in ipairs(compile_items) do
+    file_to_project_map[vim.fs.normalize(item)] = proj_data.proj_file
+  end
+
+  return (
+    proj_data.dll_file ~= ""
+    and proj_data.proj_file ~= ""
+    and (proj_data.is_test_project or proj_data.is_mtp_project)
+    and proj_data
+  ) or nil
+end
 
 ---collects project information based on file
 ---@async
@@ -175,6 +247,15 @@ function dotnet_utils.get_proj_info(path)
   logger.debug("No cached project info found for " .. proj_file)
   logger.debug(proj_info_cache[proj_file])
 
+  local build_args = dotnet_utils.opts.additional_args or {}
+  local cached_project, cached_compile_items = project_cache.get(proj_file, build_args)
+  if cached_project then
+    logger.debug("neotest-vstest: using disk cached project info for " .. proj_file)
+    local project = register_project(cached_project, cached_compile_items)
+    semaphore.release()
+    return project
+  end
+
   local target_framework = get_target_frameworks(proj_file)
 
   if not target_framework then
@@ -182,29 +263,27 @@ function dotnet_utils.get_proj_info(path)
     return nil
   end
 
-  local msbuild_cmd = {
-    "dotnet",
-    "msbuild",
+  local _, res = run_msbuild({
     proj_file,
     "-getItem:Compile",
     "-getProperty:TargetPath",
+    "-getProperty:ProjectAssetsFile",
     "-getProperty:MSBuildProjectDirectory",
     "-getProperty:MSBuildProjectFullPath",
     "-getProperty:IsTestProject",
     "-getProperty:IsTestingPlatformApplication",
     "-getProperty:DisableTestingPlatformServerCapability",
     "-property:TargetFramework=" .. target_framework,
-  }
-  for _, arg in ipairs(dotnet_utils.opts.additional_args or {}) do
-    table.insert(msbuild_cmd, arg)
-  end
-
-  local _, res = lib.process.run(msbuild_cmd, {
-    stderr = false,
-    stdout = true,
   })
 
-  local output = nio.fn.json_decode(res.stdout)
+  -- a failed evaluation prints errors instead of json, which must not leave the semaphore held
+  local ok, output = pcall(nio.fn.json_decode, res.stdout)
+  if not ok or type(output) ~= "table" or type(output.Properties) ~= "table" then
+    logger.warn("neotest-vstest: failed to evaluate project " .. proj_file)
+    logger.warn(res.stdout)
+    semaphore.release()
+    return nil
+  end
   local properties = output.Properties
 
   logger.debug("neotest-vstest: msbuild properties for " .. proj_file .. ":")
@@ -222,13 +301,10 @@ function dotnet_utils.get_proj_info(path)
     is_test_project = string.lower(properties.IsTestProject) == "true",
     is_mtp_project = not is_mtp_disabled
       and string.lower(properties.IsTestingPlatformApplication) == "true",
+    assets_file = properties.ProjectAssetsFile ~= "" and vim.fs.normalize(
+      properties.ProjectAssetsFile
+    ) or nil,
   }
-
-  setmetatable(proj_data, {
-    __eq = function(a, b)
-      return vim.fs.normalize(a.proj_file or "") == vim.fs.normalize(b.proj_file or "")
-    end,
-  })
 
   if proj_data.dll_file == "" then
     logger.debug("neotest-vstest: failed to find dll file for " .. proj_file)
@@ -236,33 +312,21 @@ function dotnet_utils.get_proj_info(path)
     logger.debug(res.stdout)
   end
 
-  proj_info_cache[vim.fs.normalize(proj_data.proj_file)] = proj_data
+  local compile_items = vim.tbl_map(function(item)
+    return item.FullPath
+  end, (output.Items or {}).Compile or {})
 
-  for _, item in ipairs(output.Items.Compile) do
-    file_to_project_map[vim.fs.normalize(item.FullPath)] = proj_data.proj_file
-  end
+  project_cache.set(proj_file, build_args, proj_data, compile_items)
 
+  local project = register_project(proj_data, compile_items)
   semaphore.release()
-  return (
-    proj_data.dll_file ~= ""
-    and proj_data.proj_file ~= ""
-    and (proj_data.is_test_project or proj_data.is_mtp_project)
-    and proj_data
-  ) or nil
+  return project
 end
 
 ---@param solution_path string
 ---@return string[]
 local function list_projects(solution_path)
-  local _, res = lib.process.run({
-    "dotnet",
-    "sln",
-    solution_path,
-    "list",
-  }, {
-    stderr = false,
-    stdout = true,
-  })
+  local _, res = dotnet_utils.run_dotnet({ "sln", solution_path, "list" }, { no_build_args = true })
 
   local solution_dir = vim.fs.dirname(solution_path)
   logger.debug("neotest-vstest: dotnet sln " .. solution_path .. " list output:")
@@ -369,25 +433,22 @@ local build_semaphore = nio.control.semaphore(1)
 
 ---@async
 ---@param path string
+---@param name? string what is being built, for messages. Defaults to `path`
 ---@return boolean success if build was successful
-function dotnet_utils.build_path(path)
-  build_semaphore.acquire()
-
-  logger.debug("neotest-vstest: building path " .. path)
-  local build_cmd = { "dotnet", "build", path }
-  for _, arg in ipairs(dotnet_utils.opts.additional_args or {}) do
-    table.insert(build_cmd, arg)
-  end
-  local exitCode, out = lib.process.run(build_cmd, { stdout = true, stderr = true })
-
-  build_semaphore.release()
+function dotnet_utils.build_path(path, name)
+  name = name or path
+  local exitCode, out
+  build_semaphore.with(function()
+    logger.debug("neotest-vstest: building path " .. path)
+    exitCode, out = dotnet_utils.run_dotnet({ "build", path })
+  end)
 
   if exitCode ~= 0 then
     nio.scheduler()
-    logger.error("neotest-vstest: failed to build path " .. path)
+    logger.error("neotest-vstest: failed to build path " .. name)
     logger.error(out.stdout)
     logger.error(out.stderr)
-    vim.notify_once("neotest-vstest: failed to build project " .. path, vim.log.levels.ERROR)
+    vim.notify_once("neotest-vstest: failed to build project " .. name, vim.log.levels.ERROR)
     return false
   end
 
@@ -399,6 +460,46 @@ end
 ---@return boolean success if build was successful
 function dotnet_utils.build_project(project)
   return dotnet_utils.build_path(project.proj_file)
+end
+
+---builds only the given projects and what they reference, instead of a whole solution
+---@async
+---@param solution string? path to the solution the projects belong to
+---@param projects DotnetProjectInfo[]
+---@return boolean success if every build was successful
+function dotnet_utils.build_projects(solution, projects)
+  local solution_dir = solution and vim.fs.dirname(vim.fs.normalize(solution))
+  -- a solution filter lists projects relative to the solution's directory
+  local relative_paths = {}
+  local all_in_solution_dir = solution_dir ~= nil
+  for _, project in ipairs(projects) do
+    local relative_path = solution_dir
+      and vim.fs.relpath(solution_dir, vim.fs.normalize(project.proj_file))
+    all_in_solution_dir = all_in_solution_dir and relative_path ~= nil
+    relative_paths[#relative_paths + 1] = relative_path or nil
+  end
+
+  -- building projects one at a time would rebuild the projects they share once for each of them,
+  -- so several projects are built together through a solution filter listing just them
+  if #projects > 1 and all_in_solution_dir then
+    local filter = nio.fn.tempname() .. ".slnf"
+    lib.files.write(
+      filter,
+      vim.json.encode({ solution = { path = solution, projects = relative_paths } })
+    )
+    local names = vim.tbl_map(function(project)
+      return vim.fs.basename(project.proj_file)
+    end, projects)
+    local success = dotnet_utils.build_path(filter, table.concat(names, ", "))
+    nio.uv.fs_unlink(filter)
+    return success
+  end
+
+  local success = true
+  for _, project in ipairs(projects) do
+    success = dotnet_utils.build_project(project) and success
+  end
+  return success
 end
 
 return dotnet_utils

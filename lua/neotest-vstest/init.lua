@@ -44,26 +44,59 @@ local function create_adapter()
 
     local solutions = {}
 
+    --- Lists the solution files git does not ignore, which leaves out build output and other
+    --- generated directories without the plugin having to know their names.
+    ---@async
+    ---@param search_root string
+    ---@return string[]? solutions or nil if git could not list them
+    local function find_git_solutions(search_root)
+      local ok, code, res = pcall(lib.process.run, {
+        "git",
+        "-C",
+        search_root,
+        "ls-files",
+        "-z",
+        "--cached",
+        "--others",
+        "--exclude-standard",
+        "--",
+        "*.sln",
+        "*.slnx",
+      }, { stdout = true })
+      if not ok or code ~= 0 then
+        return nil
+      end
+      local found = {}
+      for _, rel_path in ipairs(vim.split(res.stdout, "\0", { plain = true, trimempty = true })) do
+        local file = vim.fs.joinpath(search_root, rel_path)
+        -- the index still lists solutions deleted since the last commit
+        local _, stat = nio.uv.fs_stat(file)
+        if stat then
+          found[#found + 1] = file
+        end
+      end
+      return found
+    end
+
+    local function find_solutions(search_root)
+      local candidates = find_git_solutions(search_root)
+      if not candidates or #candidates == 0 then
+        -- not a git repository, or its solutions are all ignored: search every directory
+        candidates = vim.tbl_filter(function(file)
+          return file:match("%.slnx?$") ~= nil
+        end, lib.files.find(search_root))
+      end
+      return vim.tbl_filter(function(file)
+        return not ignore_function(vim.fs.dirname(file))
+      end, candidates)
+    end
+
     if first_solution then
-      solutions = vim.fs.find(function(name, search_path)
-        return name:match("%.slnx?$") and not ignore_function(search_path)
-      end, {
-        upward = false,
-        type = "file",
-        path = first_solution,
-        limit = math.huge,
-      })
+      solutions = find_solutions(first_solution)
       logger.info(string.format("neotest-vstest: scanning %s for solution file...", first_solution))
       logger.info(solutions)
     elseif config.broad_recursive_discovery then
-      solutions = vim.fs.find(function(name, search_path)
-        return name:match("%.slnx?$") and not ignore_function(search_path)
-      end, {
-        upward = false,
-        type = "file",
-        path = path,
-        limit = math.huge,
-      })
+      solutions = find_solutions(path)
       logger.info(string.format("neotest-vstest: scanning %s for solution file...", path))
       logger.info(solutions)
     end
@@ -105,10 +138,40 @@ local function create_adapter()
 
       if solution_future.wait() and solution then
         dotnet_utils.build_path(solution)
-        dotnet_utils.get_solution_info(solution)
+        local solution_info = dotnet_utils.get_solution_info(solution)
         solution = string.gsub(solution, "/", lib.files.sep)
         solution_dir = string.gsub(vim.fs.dirname(solution), "/", lib.files.sep)
         logger.info(string.format("neotest-vstest: found solution dir %s", solution_dir))
+
+        local background_discovery_semaphore = require("nio").control.semaphore(
+          math.max(1, math.floor(vim.uv.available_parallelism() / 2))
+        )
+
+        -- neotest checks files one at a time, so without this each project's test host
+        -- only starts once the previous project has finished discovering
+        local client_discovery = require("neotest-vstest.client")
+        local projects = solution_info and solution_info.projects or {}
+        local solution_file = solution
+        for _, project in ipairs(projects) do
+          nio.run(function()
+            -- each client is a test host process, so only a few are started at a time
+            background_discovery_semaphore.with(function()
+              local client = client_discovery.get_client_for_project(project, solution_file)
+              if client then
+                client:discover_tests()
+              end
+            end)
+          end, function(success, err)
+            if not success then
+              logger.warn(
+                "neotest-vstest: background discovery failed for "
+                  .. project.proj_file
+                  .. ": "
+                  .. tostring(err)
+              )
+            end
+          end)
+        end
         return solution_dir
       end
     end
@@ -122,6 +185,8 @@ local function create_adapter()
     root_semaphore.with(function()
       root = find_root(path)
     end)
+    -- discovery ends on libuv callbacks; adapters checked after this one need the main loop
+    require("nio").scheduler()
     return root
   end
 
@@ -257,60 +322,172 @@ local function create_adapter()
     end
   end
 
+  ---@class neotest-vstest.Definition a test or namespace definition found in the source
+  ---@field type "test"|"namespace"
+  ---@field name string
+  ---@field range integer[]
+  ---@field test_ids string[] tests assigned to a test definition
+
   ---@param source string
   ---@param captured_nodes any
-  ---@param tests_in_file table<string, neotest-vstest.TestCase>
-  ---@param path string
-  ---@return nil | neotest.Position | neotest.Position[]
-  local function build_position(source, captured_nodes, tests_in_file, path)
+  ---@return neotest-vstest.Definition?
+  local function get_definition(source, captured_nodes)
     local match_type = get_match_type(captured_nodes)
-    if match_type then
-      local definition = captured_nodes[match_type .. ".definition"]
+    if not match_type then
+      return nil
+    end
+    local name = vim.treesitter.get_node_text(captured_nodes[match_type .. ".name"], source)
+    return {
+      type = match_type,
+      -- f# names may be quoted in double backticks and c# names may be prefixed by @
+      name = (name:gsub("``", ""):gsub("^@", "")),
+      range = { captured_nodes[match_type .. ".definition"]:range() },
+      test_ids = {},
+    }
+  end
 
-      ---@type neotest.Position[]
-      local positions = {}
+  ---@param definition neotest-vstest.Definition
+  ---@param row integer 0-based
+  local function contains_row(definition, row)
+    return definition.range[1] <= row and row <= definition.range[3]
+  end
 
-      if match_type == "test" then
-        for id, test in pairs(tests_in_file) do
+  --- Assigns each test to the definition of its method.
+  --- The line numbers come from the last successful build, so they are wrong as soon as lines are
+  --- added or removed until the next build succeeds. Tests are therefore matched by name, and the
+  --- line only chooses between methods with the same name, or places tests whose name is not found.
+  ---@param definitions neotest-vstest.Definition[] in document order
+  ---@param tests_in_file table<string, neotest-vstest.TestCase> assigned tests are removed
+  local function assign_tests(definitions, tests_in_file)
+    -- a method is indexed by its name qualified with at least the class or namespace around it,
+    -- so it is not mistaken for a method with the same name in another class
+    local by_name = {}
+    local function index(name, definition)
+      by_name[name] = by_name[name] or {}
+      table.insert(by_name[name], definition)
+    end
+    for _, definition in ipairs(definitions) do
+      if definition.type == "test" then
+        local enclosing = {}
+        for _, other in ipairs(definitions) do
           if
-            definition:start() <= test.LineNumber - 1 and test.LineNumber - 1 <= definition:end_()
+            other.type == "namespace"
+            and other.range[1] <= definition.range[1]
+            and definition.range[3] <= other.range[3]
           then
-            table.insert(positions, {
-              id = id,
-              type = match_type,
-              path = path,
-              name = test.DisplayName,
-              range = { definition:range() },
-            })
-            tests_in_file[id] = nil
+            enclosing[#enclosing + 1] = other.name
+          end
+        end
+        if #enclosing == 0 then
+          index(definition.name, definition)
+        end
+        local name = definition.name
+        for i = #enclosing, 1, -1 do
+          name = enclosing[i] .. "." .. name
+          index(name, definition)
+        end
+      end
+    end
+
+    ---@param qualified_name string? e.g. Namespace.Class+NestedClass.Method<T>(args)
+    local function candidates(qualified_name)
+      if not qualified_name then
+        return nil
+      end
+      -- drop the arguments and type arguments of parameterized tests
+      local name = qualified_name:gsub("%b()$", ""):gsub("%b<>$", ""):gsub("%+", ".")
+      -- method names can contain dots in f#, so every suffix after a dot is tried, longest first
+      local start = 1
+      while true do
+        local found = by_name[name:sub(start)]
+        if found then
+          return found
+        end
+        local dot = name:find(".", start, true)
+        if not dot then
+          return nil
+        end
+        start = dot + 1
+      end
+    end
+
+    local ids = vim.tbl_keys(tests_in_file)
+    table.sort(ids)
+    for _, id in ipairs(ids) do
+      local test = tests_in_file[id]
+      local row = (test.LineNumber or 0) - 1
+      local chosen
+      local same_name = candidates(test.FullyQualifiedName)
+      if same_name then
+        local best_distance
+        for _, definition in ipairs(same_name) do
+          local distance = contains_row(definition, row) and 0
+            or math.abs(definition.range[1] - row)
+          if not best_distance or distance < best_distance then
+            chosen, best_distance = definition, distance
           end
         end
       else
-        local name = vim.treesitter.get_node_text(captured_nodes[match_type .. ".name"], source)
-        table.insert(positions, {
-          type = match_type,
-          path = path,
-          name = string.gsub(name, "``", ""),
-          range = { definition:range() },
-        })
+        -- a test belongs to the first definition that contains it
+        for _, definition in ipairs(definitions) do
+          if definition.type == "test" and contains_row(definition, row) then
+            chosen = definition
+            break
+          end
+        end
       end
-
-      if #positions > 1 then
-        local pos = positions[1]
-        table.insert(positions, 1, {
-          type = "namespace",
-          -- Keep this distinction for build_structure without exposing an
-          -- unsupported position type to Neotest.
-          is_parameterized = true,
-          path = pos.path,
-          -- remove parameterized part of test name
-          name = pos.name:gsub("<.*>", ""):gsub("%(.*%)", ""),
-          range = pos.range,
-        })
+      if chosen then
+        table.insert(chosen.test_ids, id)
+        tests_in_file[id] = nil
       end
-
-      return positions
     end
+  end
+
+  ---@param definition neotest-vstest.Definition
+  ---@param tests table<string, neotest-vstest.TestCase>
+  ---@param path string
+  ---@return neotest.Position[]
+  local function definition_positions(definition, tests, path)
+    ---@type neotest.Position[]
+    local positions = {}
+
+    if definition.type == "test" then
+      table.sort(definition.test_ids, function(a, b)
+        return tests[a].DisplayName < tests[b].DisplayName
+      end)
+      for _, id in ipairs(definition.test_ids) do
+        table.insert(positions, {
+          id = id,
+          type = "test",
+          path = path,
+          name = tests[id].DisplayName,
+          range = definition.range,
+        })
+      end
+    else
+      table.insert(positions, {
+        type = definition.type,
+        path = path,
+        name = definition.name,
+        range = definition.range,
+      })
+    end
+
+    if #positions > 1 then
+      local pos = positions[1]
+      table.insert(positions, 1, {
+        type = "namespace",
+        -- Keep this distinction for build_structure without exposing an
+        -- unsupported position type to Neotest.
+        is_parameterized = true,
+        path = pos.path,
+        -- remove parameterized part of test name
+        name = pos.name:gsub("<.*>", ""):gsub("%(.*%)", ""),
+        range = pos.range,
+      })
+    end
+
+    return positions
   end
 
   --- Some adapters do not provide the file which the test is defined in.
@@ -434,7 +611,14 @@ local function create_adapter()
       local lang_tree =
         vim.treesitter.get_string_parser(content, filetype, { injections = { [filetype] = "" } })
 
-      local root = lang_tree:parse(false)[1]:root()
+      -- parse in time-sliced steps so large test files don't freeze neovim,
+      -- falling back to a blocking parse if it takes longer than 'redrawtime'
+      local parsed = nio.control.future()
+      lang_tree:parse(false, function(err, trees)
+        parsed.set(not err and trees or nil)
+      end)
+      local trees = parsed.wait() or lang_tree:parse(false)
+      local root = trees[1]:root()
 
       ---@type vim.treesitter.Query
       local query = lib.treesitter.normalise_query(
@@ -453,18 +637,21 @@ local function create_adapter()
           range = { root:range() },
         },
       }
+      ---@type neotest-vstest.Definition[]
+      local definitions = {}
       for _, match in query:iter_matches(root, content, nil, nil) do
         local captured_nodes = {}
         for i, capture in ipairs(query.captures) do
           local nodes = match[i]
           captured_nodes[capture] = type(nodes) == "table" and nodes[#nodes] or nodes
         end
-        local res = build_position(content, captured_nodes, tests_in_file, path)
-        if res then
-          for _, pos in ipairs(res) do
-            nodes[#nodes + 1] = pos
-          end
-        end
+        definitions[#definitions + 1] = get_definition(content, captured_nodes)
+      end
+
+      local all_tests = vim.tbl_extend("error", {}, tests_in_file)
+      assign_tests(definitions, tests_in_file)
+      for _, definition in ipairs(definitions) do
+        vim.list_extend(nodes, definition_positions(definition, all_tests, path))
       end
 
       -- add tests which does not have a matching tree-sitter node.

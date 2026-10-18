@@ -27,8 +27,15 @@ function TestClient:new(project, sub_client)
 end
 
 function TestClient:discover_tests(path)
-  self.semaphore.acquire()
+  local test_cases
+  self.semaphore.with(function()
+    test_cases = self:discover_tests_locked(path)
+  end)
+  return test_cases
+end
 
+---@private
+function TestClient:discover_tests_locked(path)
   local last_modified
 
   local test_cases = self.sub_client.test_cases or {}
@@ -59,8 +66,6 @@ function TestClient:discover_tests(path)
     end
   end
 
-  self.semaphore.release()
-
   return test_cases
 end
 
@@ -82,15 +87,12 @@ local client_discovery = {}
 
 local clients = {}
 
----@param project DotnetProjectInfo?
+local client_semaphores = {}
+
+---@param project DotnetProjectInfo
 ---@param solution string? path to the solution file
 ---@return neotest-vstest.wrapper-client?
-function client_discovery.get_client_for_project(project, solution)
-  if not project then
-    logger.debug("neotest-vstest: No project provided, returning nil client.")
-    return nil
-  end
-
+local function create_client(project, solution)
   if clients[project.proj_file] ~= nil then
     return clients[project.proj_file] or nil
   end
@@ -145,6 +147,30 @@ function client_discovery.get_client_for_project(project, solution)
   client = TestClient:new(project, client)
 
   clients[project.proj_file] = client
+  return client
+end
+
+---@param project DotnetProjectInfo?
+---@param solution string? path to the solution file
+---@return neotest-vstest.wrapper-client?
+function client_discovery.get_client_for_project(project, solution)
+  if not project then
+    logger.debug("neotest-vstest: No project provided, returning nil client.")
+    return nil
+  end
+
+  if clients[project.proj_file] ~= nil then
+    return clients[project.proj_file] or nil
+  end
+
+  -- creating a client spawns a test host process, so concurrent callers must share one
+  local semaphore = client_semaphores[project.proj_file] or nio.control.semaphore(1)
+  client_semaphores[project.proj_file] = semaphore
+
+  local client
+  semaphore.with(function()
+    client = create_client(project, solution)
+  end)
   return client
 end
 

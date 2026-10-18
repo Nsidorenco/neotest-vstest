@@ -31,7 +31,7 @@ describe("Test root detection", function()
     local solution_file = solution_dir .. "/fsharp-test.sln"
     local no_solution_dir = "/mock/no-solution"
     local original_match_root_pattern = lib.files.match_root_pattern
-    local original_find = vim.fs.find
+    local original_find = lib.files.find
     local original_build_path = dotnet_utils.build_path
     local original_get_solution_info = dotnet_utils.get_solution_info
     local build_started = nio.control.event()
@@ -55,9 +55,9 @@ describe("Test root detection", function()
       end
       return original_match_root_pattern(pattern)
     end
-    vim.fs.find = function(_, opts)
-      found_path = opts.path
-      return opts.path == solution_dir and { solution_file } or {}
+    lib.files.find = function(path)
+      found_path = path
+      return path == solution_dir and { solution_file } or {}
     end
     dotnet_utils.build_path = function(path)
       built_path = path
@@ -92,7 +92,7 @@ describe("Test root detection", function()
       end,
     })
     lib.files.match_root_pattern = original_match_root_pattern
-    vim.fs.find = original_find
+    lib.files.find = original_find
     dotnet_utils.build_path = original_build_path
     dotnet_utils.get_solution_info = original_get_solution_info
 
